@@ -36,6 +36,22 @@ dotnet build LuxtronicPCTools.sln
 dotnet run --project src\Luxtronic.PCTools\Luxtronic.PCTools.csproj
 ```
 
+## Tests
+
+```powershell
+dotnet test LuxtronicPCTools.sln
+```
+
+`tests/Luxtronic.PCTools.Tests` is an xUnit project covering the pure/deterministic logic in
+the CPU walking skeleton - Prime95 error-line counting and torture-test FFT/thread decisions,
+the sensor driver-health verdict, the test-run summary_stats builder, and CONTRACT.md
+JSON-shape round-trips for the DTOs in `Models/Contracts.cs`. It does **not** cover
+`SensorMonitor.Initialize()`/`ReadCpu()`, `LuxApiClient`, or `TelemetryPublisher` - those need
+real hardware/a running server and are exercised instead by the manual end-to-end checklist
+above. A handful of methods that were previously `private` are `internal` (with
+`InternalsVisibleTo` granted to the test assembly) specifically so this project can exercise
+them without widening the public API surface.
+
 Note: running via `dotnet run`/`dotnet exec` does **not** trigger the `app.manifest`
 elevation prompt (that only applies when Windows launches the compiled `.exe` directly), so
 sensor init may come up degraded unless your terminal itself is already elevated. To exercise
