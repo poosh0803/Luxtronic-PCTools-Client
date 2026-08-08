@@ -1,4 +1,9 @@
+using System.Runtime.CompilerServices;
 using System.Windows;
+
+// Lets the xUnit test project (tests/Luxtronic.PCTools.Tests) call the internal pure-logic
+// methods extracted for testability, without widening the public API surface.
+[assembly: InternalsVisibleTo("Luxtronic.PCTools.Tests")]
 
 [assembly:ThemeInfo(
     ResourceDictionaryLocation.None,            //where theme specific resource dictionaries are located

@@ -172,7 +172,7 @@ public sealed class Prime95Runner
         };
     }
 
-    private static int CountErrors(string output) => ErrorLinePattern.Matches(output).Count;
+    internal static int CountErrors(string output) => ErrorLinePattern.Matches(output).Count;
 
     private static string ReadAll(StringBuilder sb)
     {
@@ -215,16 +215,30 @@ public sealed class Prime95Runner
     }
 
     /// <summary>
+    /// Pure decision logic for the torture-test config: which FFT min/max bracket to use for
+    /// the given mode string, and how many threads to torture-test with. Split out from
+    /// <see cref="WritePrimeConfig"/> so it can be unit tested without touching the filesystem -
+    /// mode matching is intentionally case-insensitive (OrdinalIgnoreCase), matching what
+    /// Prime95's mode config values look like in practice.
+    /// </summary>
+    internal static (int MinFft, int MaxFft, int Threads) GetTortureTestParams(string mode)
+    {
+        var (minFft, maxFft) = mode.Equals("small_fft", StringComparison.OrdinalIgnoreCase)
+            ? (4, 32)     // small FFTs, fits in cache -> max heat, minimal RAM exercise
+            : (8, 4096);  // "blend" - wide FFT range, exercises RAM too
+
+        var threads = Math.Max(1, Environment.ProcessorCount);
+
+        return (minFft, maxFft, threads);
+    }
+
+    /// <summary>
     /// Writes Prime95's torture-test config. See the class-level remarks: this is a
     /// best-known-good template, not yet verified against a real binary.
     /// </summary>
     private void WritePrimeConfig(CpuConfig cfg)
     {
-        var (minFft, maxFft) = cfg.Mode.Equals("small_fft", StringComparison.OrdinalIgnoreCase)
-            ? (4, 32)     // small FFTs, fits in cache -> max heat, minimal RAM exercise
-            : (8, 4096);  // "blend" - wide FFT range, exercises RAM too
-
-        var threads = Math.Max(1, Environment.ProcessorCount);
+        var (minFft, maxFft, threads) = GetTortureTestParams(cfg.Mode);
 
         var lines = new[]
         {

@@ -65,6 +65,28 @@ public sealed class SensorMonitor : IDisposable
 
         var moboSerial = TryReadMotherboardSerialViaWmi();
 
+        var (driverLikelyLoaded, message) = EvaluateSensorHealth(totalSensors, cpuSensors);
+
+        return new SensorInitResult
+        {
+            DriverLikelyLoaded = driverLikelyLoaded,
+            TotalSensorsFound = totalSensors,
+            CpuSensorsFound = cpuSensors,
+            MotherboardSerial = moboSerial,
+            Message = message,
+        };
+    }
+
+    /// <summary>
+    /// Pure verdict+message logic for the driver-health check described in the class remarks -
+    /// split out from <see cref="Initialize"/> so it can be unit tested without a real
+    /// LibreHardwareMonitorLib Computer/IHardware instance (which need real hardware). Per the
+    /// current logic, both totalSensors and cpuSensors must be nonzero for the driver to be
+    /// considered likely loaded - a nonzero total with zero CPU sensors still counts as not
+    /// loaded.
+    /// </summary>
+    internal static (bool DriverLikelyLoaded, string Message) EvaluateSensorHealth(int totalSensors, int cpuSensors)
+    {
         var driverLikelyLoaded = totalSensors > 0 && cpuSensors > 0;
 
         var message = driverLikelyLoaded
@@ -77,14 +99,7 @@ public sealed class SensorMonitor : IDisposable
               "driver exception if your org requires HVCI on. No temps/load/fan data will be " +
               "available until this is resolved.";
 
-        return new SensorInitResult
-        {
-            DriverLikelyLoaded = driverLikelyLoaded,
-            TotalSensorsFound = totalSensors,
-            CpuSensorsFound = cpuSensors,
-            MotherboardSerial = moboSerial,
-            Message = message,
-        };
+        return (driverLikelyLoaded, message);
     }
 
     /// <summary>Re-polls hardware and returns the current CPU readings we stream as telemetry.</summary>

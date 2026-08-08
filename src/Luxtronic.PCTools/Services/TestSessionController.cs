@@ -165,9 +165,8 @@ public sealed class TestSessionController : IAsyncDisposable
                 effectiveStopReason = _stopWasSensorFailure ? Models.StopReason.ClientError : Models.StopReason.UserAbort;
             }
 
-            var summary = new Dictionary<string, object> { ["error_count"] = runResult.ErrorCount };
-            if (maxTemp is double mt) summary["max_temp_c"] = mt;
-            if (loadSamples > 0) summary["avg_load_pct"] = totalLoad / loadSamples;
+            double? avgLoadPct = loadSamples > 0 ? totalLoad / loadSamples : null;
+            var summary = BuildSummaryStats(runResult.ErrorCount, maxTemp, avgLoadPct);
 
             onLog("Completing test run (PATCH .../test-runs/:id)...");
             await _api.CompleteTestRunAsync(sessionId, testRunId, new CompleteTestRunRequest
@@ -242,6 +241,22 @@ public sealed class TestSessionController : IAsyncDisposable
     public void RequestStop() => _stopCts?.Cancel();
 
     private static string Truncate(string s, int maxLen) => s.Length <= maxLen ? s : s[..maxLen] + "\n...[truncated]";
+
+    /// <summary>
+    /// Pure summary_stats builder (CONTRACT.md §2 test_runs.summary_stats / §7). Split out from
+    /// the run loop so it can be unit tested without the rest of the orchestration. Mirrors the
+    /// exact current logic: "error_count" is always present; "max_temp_c" is present only when
+    /// a max temperature was observed during the run; "avg_load_pct" is present only when at
+    /// least one load sample was averaged (avgLoadPct is expected to already be null in that
+    /// case, computed by the caller as totalLoad / loadSamples guarded by loadSamples > 0).
+    /// </summary>
+    internal static Dictionary<string, object> BuildSummaryStats(int errorCount, double? maxTempObserved, double? avgLoadPct)
+    {
+        var summary = new Dictionary<string, object> { ["error_count"] = errorCount };
+        if (maxTempObserved is double mt) summary["max_temp_c"] = mt;
+        if (avgLoadPct is double al) summary["avg_load_pct"] = al;
+        return summary;
+    }
 
     public async ValueTask DisposeAsync()
     {
