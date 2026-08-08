@@ -1,0 +1,92 @@
+<Window x:Class="Luxtronic.PCTools.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:Luxtronic.PCTools"
+        mc:Ignorable="d"
+        Title="Luxtronic PCTools - PC Test Client" Height="720" Width="620"
+        MinHeight="620" MinWidth="560">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Title / elevation reminder -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,10">
+            <TextBlock Text="Luxtronic PCTools - PC Test Client" FontSize="20" FontWeight="Bold"/>
+            <TextBlock Text="Technician tool. Must run as Administrator (sensor driver requires elevation)."
+                       FontStyle="Italic" Foreground="Gray" Margin="0,2,0,0"/>
+        </StackPanel>
+
+        <!-- Machine identity (auto-read, not typed) -->
+        <GroupBox Grid.Row="1" Header="Machine identity (auto-read)" Margin="0,0,0,10">
+            <Grid Margin="6">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Motherboard serial:" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <TextBlock Grid.Row="0" Grid.Column="1" x:Name="MoboSerialText" Text="(reading...)" VerticalAlignment="Center" Margin="0,4,0,4"/>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Sensor status:" FontWeight="SemiBold" VerticalAlignment="Top"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" x:Name="SensorStatusText" Text="(checking...)" TextWrapping="Wrap" VerticalAlignment="Center"/>
+            </Grid>
+        </GroupBox>
+
+        <!-- Session form -->
+        <GroupBox Grid.Row="2" Header="Session" Margin="0,0,0,10">
+            <StackPanel Margin="6">
+                <TextBlock Text="Customer name" Margin="0,0,0,2"/>
+                <TextBox x:Name="CustomerNameBox" Margin="0,0,0,8"/>
+
+                <TextBlock Text="Session type" Margin="0,0,0,2"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <RadioButton x:Name="NewBuildRadio" Content="New build" GroupName="SessionType" Margin="0,0,16,0"/>
+                    <RadioButton x:Name="RepairRadio" Content="Repair" GroupName="SessionType" IsChecked="True"/>
+                </StackPanel>
+
+                <TextBlock Text="Notes (optional)" Margin="0,0,0,2"/>
+                <TextBox x:Name="NotesBox" Height="60" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"/>
+            </StackPanel>
+        </GroupBox>
+
+        <!-- Test selection -->
+        <GroupBox Grid.Row="3" Header="Tests to run" Margin="0,0,0,10">
+            <StackPanel Margin="6">
+                <CheckBox x:Name="CpuTestCheck" Content="CPU - Prime95 Torture Test" IsChecked="True" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                <CheckBox Content="GPU - FurMark (coming soon)" IsEnabled="False" Foreground="Gray" Margin="0,0,0,6"/>
+                <CheckBox Content="RAM - TestMem5 (coming soon)" IsEnabled="False" Foreground="Gray" Margin="0,0,0,6"/>
+                <CheckBox Content="SSD - CrystalDiskMark (coming soon)" IsEnabled="False" Foreground="Gray"/>
+            </StackPanel>
+        </GroupBox>
+
+        <!-- Controls -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,0,0,10">
+            <Button x:Name="StartButton" Content="Start" Width="100" Height="32" Click="StartButton_Click"/>
+            <Button x:Name="StopButton" Content="Stop" Width="100" Height="32" Margin="10,0,0,0" IsEnabled="False" Click="StopButton_Click"/>
+        </StackPanel>
+
+        <!-- Running indicator -->
+        <Border Grid.Row="5" x:Name="RunningIndicator" Background="#C0392B" Padding="10" Margin="0,0,0,10" Visibility="Collapsed">
+            <TextBlock Text="TEST RUNNING - DO NOT POWER OFF" Foreground="White" FontWeight="Bold" FontSize="16" HorizontalAlignment="Center"/>
+        </Border>
+
+        <!-- Log -->
+        <GroupBox Grid.Row="6" Header="Status log">
+            <TextBox x:Name="LogBox" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                     FontFamily="Consolas" FontSize="12" Background="#1E1E1E" Foreground="#D4D4D4" BorderThickness="0"/>
+        </GroupBox>
+    </Grid>
+</Window>
