@@ -1,0 +1,25 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+*.user
+
+# Real technician API key - never commit
+src/Luxtronic.PCTools/apikey.txt
+**/apikey.txt
+
+# Real Prime95 binary/config - third-party, not redistributed via this repo
+tools/prime95/*.exe
+tools/prime95/*.dll
+tools/prime95/prime.txt
+tools/prime95/local.txt
+tools/prime95/results.txt
+!tools/prime95/README.md
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.suo
+
+# OS cruft
+Thumbs.db
+.DS_Store
