@@ -3,9 +3,9 @@ using Xunit;
 
 namespace Luxtronic.PCTools.Tests;
 
-// Only BuildSsdInfo (pure attribute extraction) is tested here - SsdSmartReader.Initialize()/
-// ReadAll() wrap a real LibreHardwareMonitorLib Computer and need real drives, same boundary as
-// SensorMonitor.ReadCpu() (see README's manual end-to-end checklist).
+// Only BuildSsdInfo/FormatSsdSummary (pure) are tested here - SsdSmartReader.ReadAll() needs a
+// real, already-updated LibreHardwareMonitorLib hardware collection (via SensorMonitor's shared
+// Computer), same boundary as SensorMonitor.ReadCpu() (see README's manual end-to-end checklist).
 public class SsdSmartReaderTests
 {
     // Ground-truthed against a real Crucial CT1000P2SSD8 NVMe drive.
@@ -96,16 +96,18 @@ public class SsdSmartReaderTests
     }
 
     [Fact]
-    public void FormatSsdSummary_Nvme_ShowsUsedAndSpareNotReallocated()
+    public void FormatSsdSummary_Nvme_ShowsModelSerialTempOnly()
     {
+        // Used%/Spare% deliberately omitted from the summary per user feedback - still captured
+        // on SsdSmartInfo (see BuildSsdInfo_Nvme_PopulatesNvmeFieldsNotAtaFields) for later use,
+        // just not shown in this line.
         var info = SsdSmartReader.BuildSsdInfo("CT1000P2SSD8", "2050E4D9C945", isNvme: true, temperatureC: 44.0, RealNvmeAttributes);
 
         var text = SsdSmartReader.FormatSsdSummary(info);
 
-        Assert.Contains("CT1000P2SSD8 (2050E4D9C945)", text);
-        Assert.Contains("44C", text);
-        Assert.Contains("Used: 8%", text);
-        Assert.Contains("Spare: 100%", text);
+        Assert.Equal("CT1000P2SSD8 (2050E4D9C945): 44C", text);
+        Assert.DoesNotContain("Used", text);
+        Assert.DoesNotContain("Spare", text);
         Assert.DoesNotContain("Reallocated", text);
     }
 
@@ -132,7 +134,6 @@ public class SsdSmartReaderTests
 
         var text = SsdSmartReader.FormatSsdSummary(info);
 
-        Assert.Contains("Unknown Drive (no serial)", text);
-        Assert.Contains(": --   Used: --   Spare: --", text);
+        Assert.Equal("Unknown Drive (no serial): --", text);
     }
 }

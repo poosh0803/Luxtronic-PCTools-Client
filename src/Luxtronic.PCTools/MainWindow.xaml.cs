@@ -115,16 +115,25 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// One-time point-in-time SMART read at app open, shown for informational/visibility purposes
-    /// only - SsdSmartReader isn't wired into TestSessionController/orchestration yet (see
-    /// README's "Current scope"), so this never blocks Start or affects the CPU test either way.
+    /// only - not wired into TestSessionController/orchestration yet (see README's "Current
+    /// scope"), so this never blocks Start or affects the CPU test either way. Goes through
+    /// _sensors.ReadSsds() (the same shared Computer as CPU reads) rather than a separate reader -
+    /// LibreHardwareMonitorLib doesn't support two Computer instances in one process, see
+    /// SensorMonitor's class remarks. Not gated on _sensorsHealthy (that verdict is specifically
+    /// about CPU temperature readability - storage can read fine independent of it); ReadSsds()
+    /// itself throws a clear InvalidOperationException if _sensors never initialized, caught below.
     /// </summary>
     private void InitializeSsdSummary()
     {
+        if (_sensors is null)
+        {
+            SsdSummaryText.Text = "(unavailable - sensors did not initialize)";
+            return;
+        }
+
         try
         {
-            using var ssdReader = new SsdSmartReader();
-            ssdReader.Initialize();
-            var drives = ssdReader.ReadAll();
+            var drives = _sensors.ReadSsds();
 
             if (drives.Count == 0)
             {

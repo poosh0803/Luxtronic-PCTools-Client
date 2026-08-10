@@ -1,5 +1,6 @@
 using System.Management;
 using LibreHardwareMonitor.Hardware;
+using LibreHardwareMonitor.Hardware.Storage;
 
 namespace Luxtronic.PCTools.Services;
 
@@ -19,7 +20,7 @@ public sealed class SensorInitResult
 }
 
 /// <summary>
-/// Wraps LibreHardwareMonitorLib for CPU sensor access, plus a WMI lookup for the
+/// Wraps LibreHardwareMonitorLib for CPU + storage sensor access, plus a WMI lookup for the
 /// motherboard serial (LHM doesn't expose board serials - that's WMI's job).
 ///
 /// This is the component that has to surface PROJECT_PLAN.md §8's named risk: the WinRing0
@@ -27,6 +28,14 @@ public sealed class SensorInitResult
 /// Memory Integrity (HVCI) enabled, and sensors then just come back empty - no exception, no
 /// obvious error. Initialize() checks sensor counts explicitly and reports degraded state
 /// rather than letting a caller assume "no exception thrown" means "sensors are working".
+///
+/// IMPORTANT - owns the only <see cref="Computer"/> instance for the whole app. LibreHardwareMonitorLib
+/// does not support multiple concurrent Computer instances in one process: opening a second one
+/// (previously done in a since-removed SsdSmartReader that owned its own Computer) corrupted this
+/// one's internal CPU hardware state and made the very next ReadCpu() throw a
+/// NullReferenceException deep inside LHM's own GenericCpu.Update() - confirmed by reproducing it
+/// directly. SSD SMART reads (<see cref="ReadSsds"/>) go through this same Computer/visitor for
+/// that reason, not a separate reader.
 /// </summary>
 public sealed class SensorMonitor : IDisposable
 {
@@ -42,7 +51,7 @@ public sealed class SensorMonitor : IDisposable
             IsMotherboardEnabled = true, // needed for Super IO fan/temp sensors on many boards
             IsMemoryEnabled = false,
             IsGpuEnabled = false,
-            IsStorageEnabled = false,
+            IsStorageEnabled = true,
             IsNetworkEnabled = false,
             IsControllerEnabled = true,
         };
@@ -204,6 +213,20 @@ public sealed class SensorMonitor : IDisposable
         }
 
         return new SensorReadings(packageTemp, load, fanRpm, AverageClockMhz(coreClocks));
+    }
+
+    /// <summary>Point-in-time SMART read for every drive LHM can see, through the same shared
+    /// Computer/visitor as <see cref="ReadCpu"/> - see class remarks on why a second Computer
+    /// instance isn't used. Not part of the continuous polling loop; called once at app open.</summary>
+    public IReadOnlyList<SsdSmartInfo> ReadSsds()
+    {
+        if (!_initialized)
+        {
+            throw new InvalidOperationException("SensorMonitor.Initialize() must be called first.");
+        }
+
+        _computer.Accept(_visitor);
+        return SsdSmartReader.ReadAll(_computer.Hardware);
     }
 
     /// <summary>

@@ -29,12 +29,17 @@ public sealed record SsdSmartInfo(
     long? MediaErrors);
 
 /// <summary>
-/// Wraps LibreHardwareMonitorLib's Storage hardware group for drive identity (model, serial) and
-/// S.M.A.R.T. health data. Uses its own <see cref="Computer"/> instance scoped to storage only
-/// (IsStorageEnabled), separate from <see cref="SensorMonitor"/>'s CPU-only instance, since the
-/// two are unrelated concerns with different lifecycles (CPU sensors get polled continuously
-/// during a run; SMART data is read as point-in-time snapshots) and PROJECT_PLAN.md's concurrency
-/// rule keeps SSD testing exclusive from everything else anyway.
+/// Reads drive identity (model, serial) and S.M.A.R.T. health data from LibreHardwareMonitorLib's
+/// Storage hardware group.
+///
+/// Stateless by design - does NOT own a <see cref="Computer"/> instance. LibreHardwareMonitorLib
+/// does not support multiple concurrent Computer instances in one process: an earlier version of
+/// this class opened its own Computer(IsStorageEnabled=true), which corrupted SensorMonitor's
+/// separate CPU-scoped Computer instance and made its next ReadCpu() throw a
+/// NullReferenceException deep inside LHM's own GenericCpu.Update() - confirmed by reproducing it
+/// directly. <see cref="SensorMonitor"/> now owns the single shared Computer (with
+/// IsStorageEnabled=true) and calls <see cref="ReadAll"/> with its already-updated
+/// <c>Computer.Hardware</c> collection via <see cref="SensorMonitor.ReadSsds"/>.
 ///
 /// IMPORTANT - attribute ID schemes are NOT unified across bus types. LibreHardwareMonitorLib
 /// (via DiskInfoToolkit) exposes SMART data through the same <see cref="ISmart.Attributes"/>
@@ -46,13 +51,12 @@ public sealed record SsdSmartInfo(
 /// answer (e.g. reading an NVMe drive's 8% wear level as if it were a SATA drive's reallocated
 /// sector count).
 ///
-/// Not yet validated against a real ATA/SATA drive - ground-truthed only against two NVMe drives
-/// (see git history/commit message for the exact dump). The ATA attribute IDs below
-/// (5 = Reallocated Sectors Count, 9 = Power-On Hours) are the standard, widely-documented SMART
-/// attribute table values, but should be re-confirmed against a real SATA SSD/HDD before this is
-/// relied on for a technician's pass/fail decision.
+/// Not yet validated against a real ATA/SATA drive - ground-truthed only against two NVMe drives.
+/// The ATA attribute IDs below (5 = Reallocated Sectors Count, 9 = Power-On Hours) are the
+/// standard, widely-documented SMART attribute table values, but should be re-confirmed against a
+/// real SATA SSD/HDD before this is relied on for a technician's pass/fail decision.
 /// </summary>
-public sealed class SsdSmartReader : IDisposable
+public static class SsdSmartReader
 {
     // NVMe SMART/health log attribute IDs, as synthesized by DiskInfoToolkit (confirmed via a
     // real elevated dump against two NVMe drives - Crucial CT1000P2SSD8, Micron 2210).
@@ -66,45 +70,15 @@ public sealed class SsdSmartReader : IDisposable
     private const byte AtaReallocatedSectorsId = 5;
     private const byte AtaPowerOnHoursId = 9;
 
-    private readonly Computer _computer;
-    private readonly UpdateVisitor _visitor = new();
-    private bool _initialized;
-
-    public SsdSmartReader()
+    /// <summary>Reads current identity + SMART health for every drive in an already-updated
+    /// hardware collection (i.e. after a Computer.Accept(visitor) call). A drive that fails to
+    /// yield a serial/model still gets a best-effort entry rather than being dropped, matching
+    /// the "log what's available, don't block on missing serials" approach already used for the
+    /// motherboard serial (PROJECT_PLAN.md §8).</summary>
+    public static IReadOnlyList<SsdSmartInfo> ReadAll(IEnumerable<IHardware> hardware)
     {
-        _computer = new Computer
-        {
-            IsCpuEnabled = false,
-            IsMotherboardEnabled = false,
-            IsMemoryEnabled = false,
-            IsGpuEnabled = false,
-            IsStorageEnabled = true,
-            IsNetworkEnabled = false,
-            IsControllerEnabled = false,
-        };
-    }
-
-    public void Initialize()
-    {
-        _computer.Open();
-        _initialized = true;
-    }
-
-    /// <summary>Reads current identity + SMART health for every drive LibreHardwareMonitorLib
-    /// can see. A drive that fails to yield a serial/model still gets a best-effort entry rather
-    /// than being dropped, matching the "log what's available, don't block on missing serials"
-    /// approach already used for the motherboard serial (PROJECT_PLAN.md §8).</summary>
-    public IReadOnlyList<SsdSmartInfo> ReadAll()
-    {
-        if (!_initialized)
-        {
-            throw new InvalidOperationException("SsdSmartReader.Initialize() must be called first.");
-        }
-
-        _computer.Accept(_visitor);
-
         var results = new List<SsdSmartInfo>();
-        foreach (var hw in _computer.Hardware)
+        foreach (var hw in hardware)
         {
             if (hw is not StorageDevice storageDevice)
             {
@@ -152,11 +126,11 @@ public sealed class SsdSmartReader : IDisposable
     }
 
     /// <summary>
-    /// One-line summary for the UI (e.g. "CT1000P2SSD8 (2050E4D9C945): 44C   Used: 8%   Spare:
-    /// 100%" for NVMe, or "Model (Serial): 35C   Reallocated: 3   Power-on: 12000h" for ATA/SATA)
-    /// - shows the fields that are actually meaningful for the drive's bus type rather than a
-    /// fixed set of columns, since (per class remarks) NVMe and ATA/SATA drives don't share a
-    /// SMART vocabulary. "--" stands in for any null field.
+    /// One-line summary for the UI (e.g. "CT1000P2SSD8 (2050E4D9C945): 44C" for NVMe, or
+    /// "Model (Serial): 35C   Reallocated: 3   Power-on: 12000h" for ATA/SATA). NVMe intentionally
+    /// omits PercentageUsed/AvailableSparePercent here - still captured on SsdSmartInfo for future
+    /// use (e.g. once the server evaluates thresholds against them), just not surfaced in this
+    /// summary line. "--" stands in for any null field.
     /// </summary>
     internal static string FormatSsdSummary(SsdSmartInfo info)
     {
@@ -165,9 +139,7 @@ public sealed class SsdSmartReader : IDisposable
 
         if (info.IsNvme)
         {
-            var used = info.PercentageUsed is double u ? $"{u:F0}%" : "--";
-            var spare = info.AvailableSparePercent is double s ? $"{s:F0}%" : "--";
-            return $"{info.Model} ({serial}): {temp}   Used: {used}   Spare: {spare}";
+            return $"{info.Model} ({serial}): {temp}";
         }
 
         var reallocated = info.ReallocatedSectorsCount is long r ? r.ToString() : "--";
@@ -180,30 +152,4 @@ public sealed class SsdSmartReader : IDisposable
 
     private static long? GetLong(IReadOnlyDictionary<byte, float> attributesById, byte id) =>
         attributesById.TryGetValue(id, out var value) ? (long)value : null;
-
-    public void Dispose()
-    {
-        if (_initialized)
-        {
-            _computer.Close();
-        }
-    }
-
-    private sealed class UpdateVisitor : IVisitor
-    {
-        public void VisitComputer(IComputer computer) => computer.Traverse(this);
-
-        public void VisitHardware(IHardware hardware)
-        {
-            hardware.Update();
-            foreach (var sub in hardware.SubHardware)
-            {
-                sub.Accept(this);
-            }
-        }
-
-        public void VisitSensor(ISensor sensor) { }
-
-        public void VisitParameter(IParameter parameter) { }
-    }
 }
