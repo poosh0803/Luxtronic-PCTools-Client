@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Luxtronic.PCTools.Models;
 using Luxtronic.PCTools.Services;
 
@@ -13,6 +14,15 @@ public partial class MainWindow : Window
     private TestSessionController? _controller;
     private string? _moboSerial;
     private bool _sensorsHealthy;
+
+    /// <summary>
+    /// Polls sensors and updates <see cref="SensorStatusText"/> with a live readout while idle
+    /// (no test running). Must be stopped before a test starts and restarted once it ends -
+    /// SensorMonitor.ReadCpu() isn't safe to call concurrently from two places, and
+    /// TestSessionController does its own polling (and pushes readings via onReading) while a
+    /// test is in progress.
+    /// </summary>
+    private DispatcherTimer? _idleSensorTimer;
 
     public MainWindow(AppSettingsProvider settings)
     {
@@ -59,6 +69,10 @@ public partial class MainWindow : Window
                 CpuTestCheck.IsChecked = false;
                 StartButton.IsEnabled = false;
                 AppendLog("CPU test disabled: sensors are not reporting data. Fix the driver/elevation issue above and restart the app.");
+            }
+            else
+            {
+                StartIdleSensorTimer();
             }
         }
         catch (Exception ex)
@@ -130,10 +144,11 @@ public partial class MainWindow : Window
         };
 
         SetRunningUiState(true);
+        StopIdleSensorTimer();
 
         try
         {
-            await _controller.RunCpuTestSessionAsync(request, AppendLog).ConfigureAwait(true);
+            await _controller.RunCpuTestSessionAsync(request, AppendLog, UpdateLiveReadout).ConfigureAwait(true);
         }
         catch (Exception ex)
         {
@@ -144,6 +159,10 @@ public partial class MainWindow : Window
         finally
         {
             SetRunningUiState(false);
+            if (_sensorsHealthy)
+            {
+                StartIdleSensorTimer();
+            }
         }
     }
 
@@ -164,6 +183,55 @@ public partial class MainWindow : Window
         RepairRadio.IsEnabled = !running;
         CpuTestCheck.IsEnabled = !running && _sensorsHealthy;
         RunningIndicator.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>Starts polling sensors ~1/sec to show a live readout while no test is running.
+    /// Must not run concurrently with TestSessionController's own polling - see the field
+    /// remarks on <see cref="_idleSensorTimer"/>.</summary>
+    private void StartIdleSensorTimer()
+    {
+        if (_idleSensorTimer is not null)
+        {
+            return;
+        }
+
+        _idleSensorTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _idleSensorTimer.Tick += (_, _) =>
+        {
+            try
+            {
+                UpdateLiveReadout(_sensors!.ReadCpu());
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Idle sensor poll failed: {ex.Message}");
+            }
+        };
+        _idleSensorTimer.Start();
+    }
+
+    private void StopIdleSensorTimer()
+    {
+        _idleSensorTimer?.Stop();
+        _idleSensorTimer = null;
+    }
+
+    /// <summary>Updates the sensor status line with live values (CONTRACT.md-independent - this
+    /// is a UI-only convenience, not part of what's sent to the server). Can be called from a
+    /// background thread (TestSessionController's poll loop) or the UI thread (the idle timer),
+    /// so it marshals itself.</summary>
+    private void UpdateLiveReadout(SensorReadings reading)
+    {
+        void Update() => SensorStatusText.Text = SensorMonitor.FormatLiveReadout(reading);
+
+        if (Dispatcher.CheckAccess())
+        {
+            Update();
+        }
+        else
+        {
+            Dispatcher.Invoke(Update);
+        }
     }
 
     private void AppendLog(string message)
@@ -200,6 +268,7 @@ public partial class MainWindow : Window
             _controller.RequestStop();
         }
 
+        StopIdleSensorTimer();
         _sensors?.Dispose();
         if (_controller is not null)
         {

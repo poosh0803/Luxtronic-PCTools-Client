@@ -6,7 +6,8 @@ namespace Luxtronic.PCTools.Services;
 public sealed record SensorReadings(
     double? CpuPackageTempC,
     double? CpuLoadPct,
-    double? CpuFanRpm);
+    double? CpuFanRpm,
+    double? CpuFrequencyMhz);
 
 public sealed class SensorInitResult
 {
@@ -63,9 +64,20 @@ public sealed class SensorMonitor : IDisposable
         var totalSensors = _computer.Hardware.Sum(CountSensorsRecursive);
         var cpuSensors = cpuHardware is null ? 0 : CountSensorsRecursive(cpuHardware);
 
+        // Sensor *objects* existing isn't enough - LHM can enumerate "CPU Package"/"CPU Core #N"
+        // Temperature sensors while their Value stays permanently null (most commonly because
+        // another hardware-monitoring app - HWiNFO, MSI Center/Afterburner, Corsair iCUE, etc. -
+        // already has the WinRing0/Ring0 driver open exclusively). Load-type sensors don't need
+        // driver access at all, so they read fine even in that degraded state and would make the
+        // old count-only check falsely report "Sensors OK". Checking for at least one live
+        // Temperature value catches that specific failure mode.
+        var anyTemperatureValueReadable = _computer.Hardware
+            .SelectMany(EnumerateSensorsRecursive)
+            .Any(s => s.SensorType == SensorType.Temperature && s.Value.HasValue);
+
         var moboSerial = TryReadMotherboardSerialViaWmi();
 
-        var (driverLikelyLoaded, message) = EvaluateSensorHealth(totalSensors, cpuSensors);
+        var (driverLikelyLoaded, message) = EvaluateSensorHealth(totalSensors, cpuSensors, anyTemperatureValueReadable);
 
         return new SensorInitResult
         {
@@ -80,24 +92,46 @@ public sealed class SensorMonitor : IDisposable
     /// <summary>
     /// Pure verdict+message logic for the driver-health check described in the class remarks -
     /// split out from <see cref="Initialize"/> so it can be unit tested without a real
-    /// LibreHardwareMonitorLib Computer/IHardware instance (which need real hardware). Per the
-    /// current logic, both totalSensors and cpuSensors must be nonzero for the driver to be
-    /// considered likely loaded - a nonzero total with zero CPU sensors still counts as not
-    /// loaded.
+    /// LibreHardwareMonitorLib Computer/IHardware instance (which need real hardware).
+    ///
+    /// Three distinct states, not two: (1) zero sensors enumerated at all - the WinRing0 driver
+    /// itself never loaded (Secure Boot/HVCI, no elevation); (2) sensors enumerated but no
+    /// Temperature value is actually readable - the driver loaded but something else already has
+    /// exclusive access to it (another monitoring app), so Load-type sensors work fine while
+    /// everything else silently reads null; (3) both counts nonzero AND at least one temperature
+    /// reads - genuinely healthy. Only (3) counts as DriverLikelyLoaded; (1) and (2) get distinct
+    /// messages since the fix for each is different.
     /// </summary>
-    internal static (bool DriverLikelyLoaded, string Message) EvaluateSensorHealth(int totalSensors, int cpuSensors)
+    internal static (bool DriverLikelyLoaded, string Message) EvaluateSensorHealth(
+        int totalSensors, int cpuSensors, bool anyTemperatureValueReadable)
     {
-        var driverLikelyLoaded = totalSensors > 0 && cpuSensors > 0;
+        var sensorsEnumerated = totalSensors > 0 && cpuSensors > 0;
+        var driverLikelyLoaded = sensorsEnumerated && anyTemperatureValueReadable;
 
-        var message = driverLikelyLoaded
-            ? $"Sensors OK - {totalSensors} sensor(s) found ({cpuSensors} on CPU)."
-            : "WARNING: LibreHardwareMonitorLib returned 0 sensors. This is the known failure " +
-              "mode where the WinRing0 kernel driver silently fails to load - typically caused " +
-              "by Secure Boot + Memory Integrity (HVCI) being enabled, or the app not running " +
-              "elevated. Check: (1) app is running as Administrator, (2) Windows Security > " +
-              "Device security > Core isolation > Memory integrity is OFF, or add a WinRing0 " +
-              "driver exception if your org requires HVCI on. No temps/load/fan data will be " +
-              "available until this is resolved.";
+        string message;
+        if (driverLikelyLoaded)
+        {
+            message = $"Sensors OK - {totalSensors} sensor(s) found ({cpuSensors} on CPU).";
+        }
+        else if (sensorsEnumerated)
+        {
+            message = $"WARNING: {totalSensors} sensor(s) were found ({cpuSensors} on CPU) but " +
+                      "temperature readings are all null. This usually means another hardware-" +
+                      "monitoring app (HWiNFO, MSI Center/Afterburner, Corsair iCUE, etc.) already " +
+                      "has the monitoring driver open exclusively - close other hardware-monitoring " +
+                      "tools and relaunch. CPU load data may still work even though temp/clock/fan " +
+                      "data will not, since load doesn't need driver access.";
+        }
+        else
+        {
+            message = "WARNING: LibreHardwareMonitorLib returned 0 sensors. This is the known failure " +
+                      "mode where the WinRing0 kernel driver silently fails to load - typically caused " +
+                      "by Secure Boot + Memory Integrity (HVCI) being enabled, or the app not running " +
+                      "elevated. Check: (1) app is running as Administrator, (2) Windows Security > " +
+                      "Device security > Core isolation > Memory integrity is OFF, or add a WinRing0 " +
+                      "driver exception if your org requires HVCI on. No temps/load/fan data will be " +
+                      "available until this is resolved.";
+        }
 
         return (driverLikelyLoaded, message);
     }
@@ -115,6 +149,7 @@ public sealed class SensorMonitor : IDisposable
         double? packageTemp = null;
         double? load = null;
         double? fanRpm = null;
+        var coreClocks = new List<double>();
 
         foreach (var hw in _computer.Hardware)
         {
@@ -136,6 +171,18 @@ public sealed class SensorMonitor : IDisposable
                     {
                         load = value;
                     }
+                    // Per-core clock sensors (LHM names these "CPU Core #1", "CPU Core #2", ...).
+                    // Excludes "Bus Speed", which LHM also reports as a Clock sensor but isn't a
+                    // core frequency. Averaged below rather than taking one core, since cores can
+                    // be at very different clocks under partial load (e.g. one boosted, others
+                    // idle) and an average is more representative of "how hard is this CPU
+                    // running" for the dashboard than an arbitrary single core would be.
+                    else if (sensor.SensorType == SensorType.Clock &&
+                             sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) &&
+                             !sensor.Name.Contains("Bus", StringComparison.OrdinalIgnoreCase))
+                    {
+                        coreClocks.Add(value);
+                    }
                 }
 
                 if (sensor.SensorType == SensorType.Fan && fanRpm is null &&
@@ -156,7 +203,32 @@ public sealed class SensorMonitor : IDisposable
             fanRpm = fallbackFan?.Value;
         }
 
-        return new SensorReadings(packageTemp, load, fanRpm);
+        return new SensorReadings(packageTemp, load, fanRpm, AverageClockMhz(coreClocks));
+    }
+
+    /// <summary>
+    /// Pure averaging helper split out from <see cref="ReadCpu"/> so it's unit testable without
+    /// real hardware. Returns null (not 0 or NaN) when no core clock sensors were found, so the
+    /// caller can tell "no data" apart from "averaged to zero".
+    /// </summary>
+    internal static double? AverageClockMhz(IReadOnlyCollection<double> coreClocksMhz) =>
+        coreClocksMhz.Count == 0 ? null : coreClocksMhz.Average();
+
+    /// <summary>
+    /// Compact live readout for the UI's sensor status line (e.g. "CPU: 40C   Load: 12%   4187
+    /// MHz   Fan: 2303 RPM"), shown in place of the static "Sensors OK - N sensor(s) found"
+    /// message once sensors are confirmed healthy - a technician watching the app benefits more
+    /// from seeing real live numbers than a one-time count. "--" stands in for any reading that's
+    /// null this cycle (e.g. no fan sensor on this board) rather than omitting the field, so the
+    /// layout doesn't jump around from sample to sample.
+    /// </summary>
+    internal static string FormatLiveReadout(SensorReadings reading)
+    {
+        var temp = reading.CpuPackageTempC is double t ? $"{t:F0}C" : "--";
+        var load = reading.CpuLoadPct is double l ? $"{l:F0}%" : "--";
+        var clock = reading.CpuFrequencyMhz is double f ? $"{f:F0} MHz" : "--";
+        var fan = reading.CpuFanRpm is double r ? $"{r:F0} RPM" : "--";
+        return $"CPU: {temp}   Load: {load}   {clock}   Fan: {fan}";
     }
 
     private static int CountSensorsRecursive(IHardware hw) => EnumerateSensorsRecursive(hw).Count();

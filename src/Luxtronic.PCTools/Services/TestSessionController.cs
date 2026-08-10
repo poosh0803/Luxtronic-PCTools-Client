@@ -45,8 +45,12 @@ public sealed class TestSessionController : IAsyncDisposable
     /// <param name="uiLifetime">Cancelled only if the app is shutting down - NOT used for the
     /// Stop button, which goes through <see cref="RequestStop"/> instead so a clean
     /// complete-test-run/end-session sequence still runs afterward.</param>
+    /// <param name="onReading">Invoked once per sensor poll cycle (~1/sec) with the exact reading
+    /// just sent as telemetry, so the UI can show live values instead of only log lines. Called
+    /// from the background poll loop's thread - callers must marshal to the UI thread themselves.</param>
     public async Task RunCpuTestSessionAsync(
-        CreateSessionRequest sessionInfo, Action<string> onLog, CancellationToken uiLifetime = default)
+        CreateSessionRequest sessionInfo, Action<string> onLog, Action<SensorReadings>? onReading = null,
+        CancellationToken uiLifetime = default)
     {
         if (IsRunning)
         {
@@ -94,9 +98,10 @@ public sealed class TestSessionController : IAsyncDisposable
                     {
                         var reading = _sensors.ReadCpu();
                         consecutiveSensorFailures = 0;
+                        onReading?.Invoke(reading);
 
                         var ts = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
-                        var samples = new List<TelemetrySample>(3);
+                        var samples = new List<TelemetrySample>(4);
                         if (reading.CpuPackageTempC is double t)
                         {
                             samples.Add(new TelemetrySample { TestRunId = capturedTestRunId, Ts = ts, SensorName = "cpu_package_temp_c", Value = t });
@@ -111,6 +116,14 @@ public sealed class TestSessionController : IAsyncDisposable
                         if (reading.CpuFanRpm is double f)
                         {
                             samples.Add(new TelemetrySample { TestRunId = capturedTestRunId, Ts = ts, SensorName = "cpu_fan_rpm", Value = f });
+                        }
+                        if (reading.CpuFrequencyMhz is double freq)
+                        {
+                            // Not folded into summary_stats (no config threshold exists for it,
+                            // unlike max_temp_c) -- this is purely for the dashboard's live/
+                            // historical telemetry chart, which already charts any sensor_name it
+                            // sees without server-side changes.
+                            samples.Add(new TelemetrySample { TestRunId = capturedTestRunId, Ts = ts, SensorName = "cpu_frequency_mhz", Value = freq });
                         }
 
                         if (samples.Count == 0)
