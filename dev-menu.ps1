@@ -23,6 +23,7 @@ $ExePath      = Join-Path $ExeDir 'Luxtronic.PCTools.exe'
 $ApiKeyPath   = Join-Path $ExeDir 'apikey.txt'
 $Prime95Dir   = Join-Path $RepoRoot 'tools\prime95'
 $Prime95Exe   = Join-Path $Prime95Dir 'prime95.exe'
+$PublishDir   = Join-Path $RepoRoot 'publish\win-x64'
 
 # CPU test duration is server-owned config (CONTRACT.md section 3 - "config flows one direction:
 # from server to client"), not a client setting. Assumes Luxtronic-PCTools-Server checked out as
@@ -233,6 +234,48 @@ function Set-CpuTestDuration {
     Write-Host "Set CPU test duration to $minutes minute(s) in $ServerConfigPath." -ForegroundColor Green
 }
 
+function Publish-SelfContained {
+    Write-Host "Publishing a self-contained, single-file build to $PublishDir ..." -ForegroundColor Yellow
+    Write-Host 'This bundles the .NET 8 runtime into the exe itself (PROJECT_PLAN.md section 4''s' -ForegroundColor DarkYellow
+    Write-Host 'original "single self-contained executable" goal) - target PCs need nothing' -ForegroundColor DarkYellow
+    Write-Host 'installed, not even the .NET runtime, only this repo''s own dev/build machine needs' -ForegroundColor DarkYellow
+    Write-Host 'the SDK. Regular Build/dotnet run stay framework-dependent (faster, smaller) -' -ForegroundColor DarkYellow
+    Write-Host 'self-contained is opt-in per publish via command-line flags, not a project default.' -ForegroundColor DarkYellow
+    Write-Host ''
+
+    & dotnet publish $AppCsproj -c Release -r win-x64 --self-contained true `
+        -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+        -o $PublishDir
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host 'Publish failed.' -ForegroundColor Red
+        return
+    }
+
+    # tools\prime95 is resolved relative to the exe first, then by walking up parent directories
+    # as a dev-mode convenience (see README) - that walk-up only finds anything because this repo
+    # checkout is nearby. A published folder copied to another PC has no such parent repo, so
+    # prime95.exe has to ship directly inside the published folder instead.
+    if (Test-Path $Prime95Exe) {
+        $publishPrime95Dir = Join-Path $PublishDir 'tools\prime95'
+        New-Item -ItemType Directory -Force -Path $publishPrime95Dir | Out-Null
+        Copy-Item -Path (Join-Path $Prime95Dir '*') -Destination $publishPrime95Dir -Recurse -Force
+        Write-Host "Copied tools\prime95\ (including prime95.exe) into the published folder." -ForegroundColor Green
+    } else {
+        Write-Host "prime95.exe not found at $Prime95Exe - published folder has no tools\prime95\." -ForegroundColor DarkYellow
+        Write-Host "Drop prime95.exe into $PublishDir\tools\prime95\ before copying to another PC." -ForegroundColor DarkYellow
+    }
+
+    Write-Host ''
+    Write-Host "Published to $PublishDir." -ForegroundColor Green
+    Write-Host 'Before copying that folder to another PC, still needed there (not part of publish,' -ForegroundColor Yellow
+    Write-Host 'same as every other build - see README "One-time local setup"):' -ForegroundColor Yellow
+    Write-Host "  - apikey.txt - THAT technician's own key, never copy one technician's key folder-to-folder" -ForegroundColor Yellow
+    Write-Host '  - appsettings.json ServerBaseUrl - already copied, but double-check it points at the real server' -ForegroundColor Yellow
+    Write-Host ''
+    Write-Host 'Then copy the whole publish\win-x64 folder to the target PC and run' -ForegroundColor Green
+    Write-Host 'Luxtronic.PCTools.exe from there (elevated) - no .NET install needed on that PC.' -ForegroundColor Green
+}
+
 function Open-Prime95Folder {
     New-Item -ItemType Directory -Force -Path $Prime95Dir | Out-Null
     Start-Process explorer.exe $Prime95Dir
@@ -253,7 +296,8 @@ while ($running) {
     Write-Host '  7) Set server URL'
     Write-Host '  8) Set CPU test duration (server config)'
     Write-Host '  9) Open tools\prime95 folder'
-    Write-Host '  10) Exit'
+    Write-Host '  10) Publish self-contained build (for PCs without .NET installed)'
+    Write-Host '  11) Exit'
     Write-Host ''
 
     $choice = Read-Host -Prompt 'Choice'
@@ -269,7 +313,8 @@ while ($running) {
         '7' { Set-ServerUrl }
         '8' { Set-CpuTestDuration }
         '9' { Open-Prime95Folder }
-        '10' { $running = $false }
+        '10' { Publish-SelfContained }
+        '11' { $running = $false }
         default { Write-Host 'Not a valid choice.' -ForegroundColor Red }
     }
 

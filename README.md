@@ -37,7 +37,10 @@ only, by design (CONTRACT.md §7, PROJECT_PLAN.md §4).
 
 - Windows 10/11.
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (`dotnet --list-sdks` should
-  show an `8.0.x` entry).
+  show an `8.0.x` entry) - **only needed on whichever machine builds the app.** A technician's
+  PC that just *runs* an already-built copy needs nothing installed at all if you deploy the
+  self-contained publish (see "Deploying to a PC without .NET installed" below) - that's
+  PROJECT_PLAN.md §4's original "single self-contained executable" goal.
 - Must run **elevated (as Administrator)** - `LibreHardwareMonitorLib` needs to load/start the
   WinRing0 kernel driver to read CPU sensors. The built exe requests this automatically via
   `app.manifest` (`requireAdministrator`), so Windows will prompt for elevation on launch.
@@ -47,6 +50,35 @@ only, by design (CONTRACT.md §7, PROJECT_PLAN.md §4).
 ```powershell
 dotnet build LuxtronicPCTools.sln
 ```
+
+## Deploying to a PC without .NET installed
+
+Regular `dotnet build`/`dotnet run` (including `dev-menu.ps1` options 1/4/5) produce a
+**framework-dependent** build - fast and small, but the target machine needs the .NET 8 Desktop
+Runtime to run it. For an actual technician PC that shouldn't need anything installed, publish a
+**self-contained, single-file** build instead - `dev-menu.ps1` option 10, or directly:
+
+```powershell
+dotnet publish src\Luxtronic.PCTools\Luxtronic.PCTools.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish\win-x64
+```
+
+This bundles the entire .NET runtime into one exe (~166MB - that size is normal and expected for
+a bundled-runtime single file, not a bug). `dev-menu.ps1`'s version also auto-copies
+`tools\prime95\` into the published folder, since `Prime95Runner`'s dev-mode "walk up parent
+directories" fallback (see below) only works when this repo checkout is nearby - a folder copied
+to another PC has no such parent repo, so `prime95.exe` has to ship directly alongside the
+published exe instead. Still needed on the target PC after copying the published folder over,
+same as every other build (not part of the publish output, deliberately - see "One-time local
+setup" below): that technician's own `apikey.txt`, and a quick check that `appsettings.json`'s
+`ServerBaseUrl` actually points at the real server.
+
+Verified working: launched the published exe elevated on this dev machine and confirmed sensors
+(CPU/GPU/Storage, including the WinRing0 native driver) come up the same as a regular build - the
+main risk with single-file + native libraries is exactly that class of failure, so this wasn't
+assumed to work just because the publish command succeeded.
+
+The regular `[Bb]in/`/`[Oo]bj/` build output stays git-ignored as before; `publish/` is too - this
+is a build artifact, produced on demand, never committed.
 
 ## Run (dev)
 
@@ -243,7 +275,13 @@ src/Luxtronic.PCTools/        WPF client app (net8.0-windows)
   app.manifest                 requireAdministrator
 dev-menu.ps1                   PowerShell dev launcher/menu (build, test, launch elevated or via
                                  dotnet run, set API key/server URL, set CPU test duration in the
-                                 Server repo's config) - stands in for a proper installer/shortcut
-                                 during development, not part of the shipped app
+                                 Server repo's config, publish a self-contained build) - stands in
+                                 for a proper installer/shortcut during development, not part of
+                                 the shipped app
+dev-menu.bat                    Double-click wrapper for dev-menu.ps1 - bypasses the default
+                                 PowerShell execution policy that otherwise blocks it outright
 tools/prime95/README.md        Placeholder - drop prime95.exe here manually (not auto-downloaded)
+publish/win-x64/               Self-contained single-file build output (dev-menu.ps1 option 10) -
+                                 git-ignored, produced on demand, this is what gets copied to a
+                                 technician PC that has no .NET installed
 ```

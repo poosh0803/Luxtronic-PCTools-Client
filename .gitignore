@@ -3,6 +3,10 @@
 [Oo]bj/
 *.user
 
+# Self-contained publish output (dev-menu.ps1 option 10) - large bundled-runtime binary,
+# built on demand, never committed
+publish/
+
 # Real technician API key - never commit
 src/Luxtronic.PCTools/apikey.txt
 **/apikey.txt
