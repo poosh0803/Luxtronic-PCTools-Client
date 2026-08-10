@@ -15,6 +15,7 @@ public class SsdSmartReaderTests
         [3] = 100,      // Available Spare
         [4] = 5,        // Available Spare Threshold
         [5] = 8,        // Percentage Used
+        [11] = 3209,    // Power Cycles (NVMe's name for power-on count)
         [12] = 14988,   // Power On Hours
         [14] = 0,       // Media and Data Integrity Errors
     };
@@ -28,6 +29,7 @@ public class SsdSmartReaderTests
         Assert.Equal(8, info.PercentageUsed);
         Assert.Equal(100, info.AvailableSparePercent);
         Assert.Equal(14988, info.PowerOnHours);
+        Assert.Equal(3209, info.PowerOnCount);
         Assert.Equal(0, info.MediaErrors);
         Assert.Null(info.ReallocatedSectorsCount);
     }
@@ -35,13 +37,15 @@ public class SsdSmartReaderTests
     [Fact]
     public void BuildSsdInfo_Ata_PopulatesAtaFieldsNotNvmeFields()
     {
-        // Standard ATA/SATA SMART table: id 5 = Reallocated Sectors Count, id 9 = Power-On Hours.
-        // Values chosen to also exist at the *same numeric IDs* NVMe uses for unrelated metrics
-        // (id 5, id 12-ish range) specifically to prove isNvme gates interpretation, not just presence.
+        // Standard ATA/SATA SMART table: id 5 = Reallocated Sectors Count, id 9 = Power-On Hours,
+        // id 12 = Power Cycle Count. Values chosen to also exist at the *same numeric IDs* NVMe
+        // uses for unrelated metrics (id 5, id 11/12) specifically to prove isNvme gates
+        // interpretation, not just presence.
         var ataAttributes = new Dictionary<byte, float>
         {
             [5] = 3,      // Reallocated Sectors Count (ATA) - NOT "Percentage Used"
             [9] = 12000,  // Power-On Hours (ATA)
+            [12] = 450,   // Power Cycle Count (ATA) - NOT NVMe's "Power On Hours" id
         };
 
         var info = SsdSmartReader.BuildSsdInfo("Samsung 860 EVO", "S3Z9NB0K123456", isNvme: false, temperatureC: 35.0, ataAttributes);
@@ -49,6 +53,7 @@ public class SsdSmartReaderTests
         Assert.False(info.IsNvme);
         Assert.Equal(3, info.ReallocatedSectorsCount);
         Assert.Equal(12000, info.PowerOnHours);
+        Assert.Equal(450, info.PowerOnCount);
         Assert.Null(info.PercentageUsed);
         Assert.Null(info.AvailableSparePercent);
         Assert.Null(info.MediaErrors);
@@ -79,6 +84,7 @@ public class SsdSmartReaderTests
         Assert.Null(info.PercentageUsed);
         Assert.Null(info.AvailableSparePercent);
         Assert.Null(info.PowerOnHours);
+        Assert.Null(info.PowerOnCount);
         Assert.Null(info.MediaErrors);
         Assert.Null(info.ReallocatedSectorsCount);
         Assert.Null(info.SerialNumber);
@@ -96,16 +102,16 @@ public class SsdSmartReaderTests
     }
 
     [Fact]
-    public void FormatSsdSummary_Nvme_ShowsModelSerialTempOnly()
+    public void FormatSsdSummary_Nvme_ShowsModelSerialTempAndPowerOnNotUsedOrSpare()
     {
         // Used%/Spare% deliberately omitted from the summary per user feedback - still captured
         // on SsdSmartInfo (see BuildSsdInfo_Nvme_PopulatesNvmeFieldsNotAtaFields) for later use,
-        // just not shown in this line.
+        // just not shown in this line. Power-on hours + count are shown per later feedback.
         var info = SsdSmartReader.BuildSsdInfo("CT1000P2SSD8", "2050E4D9C945", isNvme: true, temperatureC: 44.0, RealNvmeAttributes);
 
         var text = SsdSmartReader.FormatSsdSummary(info);
 
-        Assert.Equal("CT1000P2SSD8 (2050E4D9C945): 44C", text);
+        Assert.Equal("CT1000P2SSD8 (2050E4D9C945): 44C   Power-on: 14988h (3209x)", text);
         Assert.DoesNotContain("Used", text);
         Assert.DoesNotContain("Spare", text);
         Assert.DoesNotContain("Reallocated", text);
@@ -114,7 +120,7 @@ public class SsdSmartReaderTests
     [Fact]
     public void FormatSsdSummary_Ata_ShowsReallocatedAndPowerOnNotUsedOrSpare()
     {
-        var ataAttributes = new Dictionary<byte, float> { [5] = 3, [9] = 12000 };
+        var ataAttributes = new Dictionary<byte, float> { [5] = 3, [9] = 12000, [12] = 450 };
         var info = SsdSmartReader.BuildSsdInfo("Samsung 860 EVO", "S3Z9NB0K123456", isNvme: false, temperatureC: 35.0, ataAttributes);
 
         var text = SsdSmartReader.FormatSsdSummary(info);
@@ -122,7 +128,7 @@ public class SsdSmartReaderTests
         Assert.Contains("Samsung 860 EVO (S3Z9NB0K123456)", text);
         Assert.Contains("35C", text);
         Assert.Contains("Reallocated: 3", text);
-        Assert.Contains("Power-on: 12000h", text);
+        Assert.Contains("Power-on: 12000h (450x)", text);
         Assert.DoesNotContain("Used:", text);
         Assert.DoesNotContain("Spare:", text);
     }
@@ -134,6 +140,6 @@ public class SsdSmartReaderTests
 
         var text = SsdSmartReader.FormatSsdSummary(info);
 
-        Assert.Equal("Unknown Drive (no serial): --", text);
+        Assert.Equal("Unknown Drive (no serial): --   Power-on: -- (--)", text);
     }
 }

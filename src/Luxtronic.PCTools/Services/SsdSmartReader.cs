@@ -26,6 +26,7 @@ public sealed record SsdSmartInfo(
     double? AvailableSparePercent,
     long? ReallocatedSectorsCount,
     long? PowerOnHours,
+    long? PowerOnCount,
     long? MediaErrors);
 
 /// <summary>
@@ -52,9 +53,10 @@ public sealed record SsdSmartInfo(
 /// sector count).
 ///
 /// Not yet validated against a real ATA/SATA drive - ground-truthed only against two NVMe drives.
-/// The ATA attribute IDs below (5 = Reallocated Sectors Count, 9 = Power-On Hours) are the
-/// standard, widely-documented SMART attribute table values, but should be re-confirmed against a
-/// real SATA SSD/HDD before this is relied on for a technician's pass/fail decision.
+/// The ATA attribute IDs below (5 = Reallocated Sectors Count, 9 = Power-On Hours,
+/// 12 = Power Cycle Count) are the standard, widely-documented SMART attribute table values, but
+/// should be re-confirmed against a real SATA SSD/HDD before this is relied on for a technician's
+/// pass/fail decision.
 /// </summary>
 public static class SsdSmartReader
 {
@@ -62,6 +64,7 @@ public static class SsdSmartReader
     // real elevated dump against two NVMe drives - Crucial CT1000P2SSD8, Micron 2210).
     private const byte NvmeAvailableSpareId = 3;
     private const byte NvmePercentageUsedId = 5;
+    private const byte NvmePowerCyclesId = 11; // NVMe calls this "Power Cycles", not "Power On Count"
     private const byte NvmePowerOnHoursId = 12;
     private const byte NvmeMediaErrorsId = 14;
 
@@ -69,6 +72,7 @@ public static class SsdSmartReader
     // confirmed against a real drive via this codebase - see class remarks).
     private const byte AtaReallocatedSectorsId = 5;
     private const byte AtaPowerOnHoursId = 9;
+    private const byte AtaPowerCycleCountId = 12;
 
     /// <summary>Reads current identity + SMART health for every drive in an already-updated
     /// hardware collection (i.e. after a Computer.Accept(visitor) call). A drive that fails to
@@ -118,33 +122,35 @@ public static class SsdSmartReader
         double? availableSpare = isNvme ? GetDouble(attributesById, NvmeAvailableSpareId) : null;
         long? reallocatedSectors = isNvme ? null : GetLong(attributesById, AtaReallocatedSectorsId);
         long? powerOnHours = GetLong(attributesById, isNvme ? NvmePowerOnHoursId : AtaPowerOnHoursId);
+        long? powerOnCount = GetLong(attributesById, isNvme ? NvmePowerCyclesId : AtaPowerCycleCountId);
         long? mediaErrors = isNvme ? GetLong(attributesById, NvmeMediaErrorsId) : null;
 
         return new SsdSmartInfo(
             model, serialNumber, isNvme, temperatureC,
-            percentageUsed, availableSpare, reallocatedSectors, powerOnHours, mediaErrors);
+            percentageUsed, availableSpare, reallocatedSectors, powerOnHours, powerOnCount, mediaErrors);
     }
 
     /// <summary>
-    /// One-line summary for the UI (e.g. "CT1000P2SSD8 (2050E4D9C945): 44C" for NVMe, or
-    /// "Model (Serial): 35C   Reallocated: 3   Power-on: 12000h" for ATA/SATA). NVMe intentionally
-    /// omits PercentageUsed/AvailableSparePercent here - still captured on SsdSmartInfo for future
-    /// use (e.g. once the server evaluates thresholds against them), just not surfaced in this
-    /// summary line. "--" stands in for any null field.
+    /// One-line summary for the UI (e.g. "CT1000P2SSD8 (2050E4D9C945): 44C   Power-on: 14988h
+    /// (3209x)" for NVMe, or "Model (Serial): 35C   Reallocated: 3   Power-on: 12000h (450x)" for
+    /// ATA/SATA). NVMe intentionally omits PercentageUsed/AvailableSparePercent here - still
+    /// captured on SsdSmartInfo for future use (e.g. once the server evaluates thresholds against
+    /// them), just not surfaced in this summary line. "--" stands in for any null field.
     /// </summary>
     internal static string FormatSsdSummary(SsdSmartInfo info)
     {
         var serial = info.SerialNumber ?? "no serial";
         var temp = info.TemperatureC is double t ? $"{t:F0}C" : "--";
+        var hours = info.PowerOnHours is long h ? $"{h}h" : "--";
+        var count = info.PowerOnCount is long c ? $"{c}x" : "--";
 
         if (info.IsNvme)
         {
-            return $"{info.Model} ({serial}): {temp}";
+            return $"{info.Model} ({serial}): {temp}   Power-on: {hours} ({count})";
         }
 
         var reallocated = info.ReallocatedSectorsCount is long r ? r.ToString() : "--";
-        var hours = info.PowerOnHours is long h ? $"{h}h" : "--";
-        return $"{info.Model} ({serial}): {temp}   Reallocated: {reallocated}   Power-on: {hours}";
+        return $"{info.Model} ({serial}): {temp}   Reallocated: {reallocated}   Power-on: {hours} ({count})";
     }
 
     private static double? GetDouble(IReadOnlyDictionary<byte, float> attributesById, byte id) =>
