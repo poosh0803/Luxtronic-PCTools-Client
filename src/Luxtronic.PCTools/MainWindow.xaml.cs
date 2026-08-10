@@ -177,12 +177,26 @@ public partial class MainWindow : Window
             return;
         }
 
+        var ssdSerials = new List<string>();
+        try
+        {
+            ssdSerials = _sensors!.ReadSsds()
+                .Where(d => d.SerialNumber is not null)
+                .Select(d => d.SerialNumber!)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"WARNING: could not read SSD serials for session creation: {ex.Message}");
+        }
+
         var request = new CreateSessionRequest
         {
             MoboSerial = _moboSerial!,
             CustomerName = string.IsNullOrWhiteSpace(CustomerNameBox.Text) ? null : CustomerNameBox.Text.Trim(),
             SessionType = NewBuildRadio.IsChecked == true ? SessionType.NewBuild : SessionType.Repair,
             Notes = string.IsNullOrWhiteSpace(NotesBox.Text) ? null : NotesBox.Text.Trim(),
+            SsdSerials = ssdSerials.Count > 0 ? ssdSerials : null,
         };
 
         SetRunningUiState(true);

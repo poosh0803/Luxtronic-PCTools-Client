@@ -174,6 +174,67 @@ public static class SsdSmartReader
         return $"{info.Model} ({serial}): {temp}   Reallocated: {reallocated}   Power-on: {hours} ({count})";
     }
 
+    /// <summary>
+    /// summary_stats for a per-drive SSD test_run (CONTRACT.md §2/§7), key names matching
+    /// config/default.json's ssd subtree exactly (max_smart_temp_c, max_smart_reallocated_sectors,
+    /// max_smart_percentage_used, min_smart_available_spare_percent, max_smart_media_errors) -
+    /// same "same key name as the threshold it's compared against" convention already used for
+    /// CPU's max_temp_c. NVMe-only and ATA-only keys are only included when
+    /// <see cref="SsdSmartInfo.IsNvme"/> makes them meaningful - see class remarks. error_count is
+    /// always 0: this reports a passive SMART snapshot, not a benchmark run, so there's no
+    /// destructive-test error count to report (min_seq_read_mb_s/min_seq_write_mb_s have no
+    /// summary_stats key yet either, since CrystalDiskMark isn't wrapped client-side - those
+    /// thresholds simply won't be evaluated until it is, per the server's own documented
+    /// convention that missing keys aren't evaluated).
+    /// </summary>
+    internal static Dictionary<string, object> BuildSummaryStats(SsdSmartInfo info)
+    {
+        var stats = new Dictionary<string, object> { ["error_count"] = 0 };
+        if (info.TemperatureC is double t) stats["max_smart_temp_c"] = t;
+
+        if (info.IsNvme)
+        {
+            if (info.PercentageUsed is double pu) stats["max_smart_percentage_used"] = pu;
+            if (info.AvailableSparePercent is double sp) stats["min_smart_available_spare_percent"] = sp;
+            if (info.MediaErrors is long me) stats["max_smart_media_errors"] = me;
+        }
+        else if (info.ReallocatedSectorsCount is long r)
+        {
+            stats["max_smart_reallocated_sectors"] = r;
+        }
+
+        return stats;
+    }
+
+    /// <summary>Human-readable tool_output_raw for a per-drive SSD test_run - there's no external
+    /// tool process to capture stdout from (SMART is read in-process via LibreHardwareMonitorLib,
+    /// unlike Prime95), so this is a formatted dump of everything captured instead.</summary>
+    internal static string FormatToolOutputRaw(SsdSmartInfo info)
+    {
+        var lines = new List<string>
+        {
+            $"Drive: {info.Model}",
+            $"Serial: {info.SerialNumber ?? "(unknown)"}",
+            $"Bus: {(info.IsNvme ? "NVMe" : "ATA/SATA")}",
+            $"Temperature: {(info.TemperatureC is double t ? $"{t}C" : "n/a")}",
+            $"Power-on hours: {(info.PowerOnHours is long h ? h.ToString() : "n/a")}",
+            $"Power-on count: {(info.PowerOnCount is long c ? c.ToString() : "n/a")}",
+        };
+
+        if (info.IsNvme)
+        {
+            lines.Add($"Percentage used: {(info.PercentageUsed is double pu ? $"{pu}%" : "n/a")}");
+            lines.Add($"Available spare: {(info.AvailableSparePercent is double sp ? $"{sp}%" : "n/a")}");
+            lines.Add($"Media errors: {(info.MediaErrors is long me ? me.ToString() : "n/a")}");
+        }
+        else
+        {
+            lines.Add($"Reallocated sectors: {(info.ReallocatedSectorsCount is long r ? r.ToString() : "n/a")}");
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
     private static double? GetDouble(IReadOnlyDictionary<byte, float> attributesById, byte id) =>
         attributesById.TryGetValue(id, out var value) ? value : null;
 

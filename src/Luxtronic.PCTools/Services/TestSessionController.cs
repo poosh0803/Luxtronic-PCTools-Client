@@ -190,6 +190,8 @@ public sealed class TestSessionController : IAsyncDisposable
                 StopReason = effectiveStopReason,
             }, uiLifetime).ConfigureAwait(false);
             onLog("Test run completion recorded on the server.");
+
+            await SubmitSsdSmartDataAsync(sessionId, onLog, uiLifetime).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -244,6 +246,55 @@ public sealed class TestSessionController : IAsyncDisposable
             IsRunning = false;
             _stopCts?.Dispose();
             _stopCts = null;
+        }
+    }
+
+    /// <summary>
+    /// Reports SMART data for every detected drive as its own SSD test_run, one
+    /// start+complete pair per drive (SsdSmartInfo has no clean way to represent multiple
+    /// drives in a single flat summary_stats object - see SSD_SMART_ADDENDUM.md in the shared
+    /// planning repo for the full design/rationale, written for the server side to implement
+    /// matching support against). Runs after the CPU test_run has already completed, so it can't
+    /// trip CONTRACT.md §6's exclusive-concurrency rule for ssd. This is a passive read, not a
+    /// benchmark - no CrystalDiskMark wrapper exists yet, so min_seq_read_mb_s/min_seq_write_mb_s
+    /// simply go unevaluated server-side (per the server's own documented convention: thresholds
+    /// with no matching summary_stats key aren't checked).
+    ///
+    /// Best-effort: a failure here (e.g. the server doesn't support component=ssd yet) is logged
+    /// but does not fail the overall CPU test session, since CPU is this pass's actual scope.
+    /// </summary>
+    private async Task SubmitSsdSmartDataAsync(string sessionId, Action<string> onLog, CancellationToken ct)
+    {
+        IReadOnlyList<SsdSmartInfo> drives;
+        try
+        {
+            drives = _sensors.ReadSsds();
+        }
+        catch (Exception ex)
+        {
+            onLog($"Skipping SSD SMART reporting - drive read failed: {ex.Message}");
+            return;
+        }
+
+        foreach (var drive in drives)
+        {
+            try
+            {
+                onLog($"Reporting SMART data for {drive.Model} ({drive.SerialNumber ?? "no serial"})...");
+                var ssdTestRunId = await _api.StartTestRunAsync(sessionId, Component.Ssd, ct).ConfigureAwait(false);
+                await _api.CompleteTestRunAsync(sessionId, ssdTestRunId, new CompleteTestRunRequest
+                {
+                    ToolExitCode = null,
+                    ToolOutputRaw = SsdSmartReader.FormatToolOutputRaw(drive),
+                    SummaryStats = SsdSmartReader.BuildSummaryStats(drive),
+                    StopReason = null,
+                }, ct).ConfigureAwait(false);
+                onLog($"SMART data reported for {drive.Model}.");
+            }
+            catch (Exception ex)
+            {
+                onLog($"WARNING: failed to report SMART data for {drive.Model}: {ex.Message}");
+            }
         }
     }
 

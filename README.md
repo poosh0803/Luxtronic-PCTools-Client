@@ -13,11 +13,16 @@ API/WebSocket shapes work end-to-end before GPU/RAM/SSD wrappers are added. GPU/
 checkboxes exist in the UI but are disabled/greyed ("coming soon") - not wired to anything.
 
 One exception: `Services/SsdSmartReader.cs` (drive identity + S.M.A.R.T. health via
-LibreHardwareMonitorLib) exists and is unit tested, ground-truthed against real NVMe hardware -
-but it's a standalone building block only. It isn't called from `TestSessionController`, has no
-UI checkbox, and CrystalDiskMark's actual benchmark (sequential read/write throughput,
-CONTRACT.md §3's `min_seq_*_mb_s`) isn't implemented at all. Full SSD test-run orchestration
-(exclusive-concurrency wiring, session `ssd_serials`, UI) is future work, same as GPU/RAM.
+LibreHardwareMonitorLib) is wired up and reports to the server - see
+[SSD_SMART_ADDENDUM.md](../Luxtronic-PCTools/SSD_SMART_ADDENDUM.md) in the shared planning repo
+for the full contract (verified working end-to-end against a live server, no server-side changes
+needed). This happens automatically after every CPU test run, regardless of the (still
+disabled/"coming soon") SSD checkbox - `TestSessionController.SubmitSsdSmartDataAsync()` submits
+one `component: "ssd"` test_run per detected drive, and `ssd_serials` is now populated at session
+creation. What's still missing: CrystalDiskMark's actual throughput benchmark (sequential
+read/write, CONTRACT.md §3's `min_seq_*_mb_s`) isn't implemented at all, and there's no UI
+checkbox or exclusive-concurrency wiring for a technician-initiated SSD test - this is SMART
+health reporting only, piggybacking on the CPU test session.
 
 The client never computes pass/fail and never shows results locally - that's server/dashboard
 only, by design (CONTRACT.md §7, PROJECT_PLAN.md §4).
@@ -184,9 +189,12 @@ whoever built the server:
    populates NVMe-specific `PercentageUsed`/`AvailableSparePercent` (see
    `Services/SsdSmartReader.cs` class remarks for the full attribute-ID mapping, including the
    gotcha that NVMe attribute ID 5 means "Percentage Used" while ATA ID 5 means "Reallocated
-   Sectors Count" - same number, unrelated meaning). The server has no config threshold or
-   result-computation handling for the NVMe fields yet - worth a CONTRACT.md §3 update once SSD
-   testing is wired up end-to-end, since most current-generation SSDs are NVMe. The ATA-side
+   Sectors Count" - same number, unrelated meaning). **Update:** this is now resolved in practice
+   - see [SSD_SMART_ADDENDUM.md](../Luxtronic-PCTools/SSD_SMART_ADDENDUM.md). The server's
+   already-generic `max_`/`min_` convention-based threshold matching handles the NVMe-specific
+   `summary_stats` keys (`max_smart_percentage_used` etc.) with no server-side code changes -
+   confirmed via a live end-to-end test against a running server that returned the correct
+   `result`. The ATA-side
    mapping (IDs 5 and 9) is the standard, widely-documented SMART table but **not yet validated
    against a real ATA/SATA drive** in this codebase.
 

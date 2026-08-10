@@ -142,4 +142,75 @@ public class SsdSmartReaderTests
 
         Assert.Equal("Unknown Drive (no serial): --   Power-on: -- (--)", text);
     }
+
+    [Fact]
+    public void BuildSummaryStats_Nvme_IncludesNvmeKeysNotReallocated()
+    {
+        var info = SsdSmartReader.BuildSsdInfo("CT1000P2SSD8", "2050E4D9C945", isNvme: true, temperatureC: 44.0, RealNvmeAttributes);
+
+        var stats = SsdSmartReader.BuildSummaryStats(info);
+
+        Assert.Equal(0, stats["error_count"]);
+        Assert.Equal(44.0, stats["max_smart_temp_c"]);
+        Assert.Equal(8.0, stats["max_smart_percentage_used"]);
+        Assert.Equal(100.0, stats["min_smart_available_spare_percent"]);
+        Assert.Equal(0L, stats["max_smart_media_errors"]);
+        Assert.False(stats.ContainsKey("max_smart_reallocated_sectors"));
+    }
+
+    [Fact]
+    public void BuildSummaryStats_Ata_IncludesReallocatedNotNvmeKeys()
+    {
+        var ataAttributes = new Dictionary<byte, float> { [5] = 3, [9] = 12000, [12] = 450 };
+        var info = SsdSmartReader.BuildSsdInfo("Samsung 860 EVO", "S3Z9NB0K123456", isNvme: false, temperatureC: 35.0, ataAttributes);
+
+        var stats = SsdSmartReader.BuildSummaryStats(info);
+
+        Assert.Equal(0, stats["error_count"]);
+        Assert.Equal(35.0, stats["max_smart_temp_c"]);
+        Assert.Equal(3L, stats["max_smart_reallocated_sectors"]);
+        Assert.False(stats.ContainsKey("max_smart_percentage_used"));
+        Assert.False(stats.ContainsKey("min_smart_available_spare_percent"));
+        Assert.False(stats.ContainsKey("max_smart_media_errors"));
+    }
+
+    [Fact]
+    public void BuildSummaryStats_MissingTemperature_OmitsMaxSmartTempKey()
+    {
+        var info = SsdSmartReader.BuildSsdInfo("Unknown Drive", null, isNvme: true, temperatureC: null, new Dictionary<byte, float>());
+
+        var stats = SsdSmartReader.BuildSummaryStats(info);
+
+        Assert.False(stats.ContainsKey("max_smart_temp_c"));
+        Assert.Equal(0, stats["error_count"]);
+    }
+
+    [Fact]
+    public void FormatToolOutputRaw_Nvme_IncludesNvmeFieldsNotReallocated()
+    {
+        var info = SsdSmartReader.BuildSsdInfo("CT1000P2SSD8", "2050E4D9C945", isNvme: true, temperatureC: 44.0, RealNvmeAttributes);
+
+        var text = SsdSmartReader.FormatToolOutputRaw(info);
+
+        Assert.Contains("Drive: CT1000P2SSD8", text);
+        Assert.Contains("Serial: 2050E4D9C945", text);
+        Assert.Contains("Bus: NVMe", text);
+        Assert.Contains("Percentage used: 8%", text);
+        Assert.Contains("Available spare: 100%", text);
+        Assert.DoesNotContain("Reallocated sectors", text);
+    }
+
+    [Fact]
+    public void FormatToolOutputRaw_Ata_IncludesReallocatedNotNvmeFields()
+    {
+        var ataAttributes = new Dictionary<byte, float> { [5] = 3, [9] = 12000, [12] = 450 };
+        var info = SsdSmartReader.BuildSsdInfo("Samsung 860 EVO", "S3Z9NB0K123456", isNvme: false, temperatureC: 35.0, ataAttributes);
+
+        var text = SsdSmartReader.FormatToolOutputRaw(info);
+
+        Assert.Contains("Bus: ATA/SATA", text);
+        Assert.Contains("Reallocated sectors: 3", text);
+        Assert.DoesNotContain("Percentage used", text);
+        Assert.DoesNotContain("Available spare", text);
+    }
 }
