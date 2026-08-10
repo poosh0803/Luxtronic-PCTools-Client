@@ -24,6 +24,11 @@ $ApiKeyPath   = Join-Path $ExeDir 'apikey.txt'
 $Prime95Dir   = Join-Path $RepoRoot 'tools\prime95'
 $Prime95Exe   = Join-Path $Prime95Dir 'prime95.exe'
 
+# CPU test duration is server-owned config (CONTRACT.md section 3 - "config flows one direction:
+# from server to client"), not a client setting. Assumes Luxtronic-PCTools-Server checked out as
+# a sibling directory next to this repo, matching this machine's layout under \Documents\Github.
+$ServerConfigPath = Join-Path $RepoRoot '..\Luxtronic-PCTools-Server\config\default.json'
+
 function Write-Header {
     Clear-Host
     Write-Host '========================================================' -ForegroundColor Cyan
@@ -41,6 +46,16 @@ function Test-DotnetSdk {
     }
     if (-not $sdks) { return $false }
     return ($sdks | Where-Object { $_ -match '^8\.0\.' }) -ne $null
+}
+
+function Get-CpuDurationMinutes {
+    if (-not (Test-Path $ServerConfigPath)) { return $null }
+    try {
+        $cfg = Get-Content $ServerConfigPath -Raw | ConvertFrom-Json
+        return $cfg.cpu.duration_minutes
+    } catch {
+        return $null
+    }
 }
 
 function Show-Status {
@@ -81,6 +96,13 @@ function Show-Status {
         }
     } else {
         Write-Host "  [FAIL] appsettings.json missing at $AppSettings" -ForegroundColor Red
+    }
+
+    $cpuDuration = Get-CpuDurationMinutes
+    if ($null -ne $cpuDuration) {
+        Write-Host "  [OK]   CPU test duration (server config) = $cpuDuration minute(s)" -ForegroundColor Green
+    } else {
+        Write-Host "  [--]   CPU test duration unknown - server config not found at $ServerConfigPath" -ForegroundColor DarkYellow
     }
 
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -173,6 +195,44 @@ function Set-ServerUrl {
     Write-Host "Updated $AppSettings. Rebuild so it's copied to the output directory." -ForegroundColor Green
 }
 
+function Set-CpuTestDuration {
+    if (-not (Test-Path $ServerConfigPath)) {
+        Write-Host "Server config not found at $ServerConfigPath" -ForegroundColor Red
+        Write-Host 'Expected Luxtronic-PCTools-Server checked out as a sibling directory next to this repo.' -ForegroundColor DarkYellow
+        return
+    }
+
+    $text = Get-Content $ServerConfigPath -Raw
+    $cfg = $text | ConvertFrom-Json
+    Write-Host "Current CPU test duration: $($cfg.cpu.duration_minutes) minute(s)" -ForegroundColor Yellow
+    Write-Host 'This edits config/default.json in the Server repo directly - only cpu.duration_minutes' -ForegroundColor DarkYellow
+    Write-Host 'is touched (gpu/ram/ssd are not wired up client-side yet). The server re-reads this' -ForegroundColor DarkYellow
+    Write-Host 'file from disk on every request, so no server restart is needed.' -ForegroundColor DarkYellow
+    $raw = Read-Host -Prompt 'New CPU test duration in minutes (blank to cancel)'
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        Write-Host 'Cancelled.' -ForegroundColor DarkYellow
+        return
+    }
+
+    $minutes = 0
+    if (-not [int]::TryParse($raw, [ref]$minutes) -or $minutes -le 0) {
+        Write-Host 'Enter a positive whole number of minutes.' -ForegroundColor Red
+        return
+    }
+
+    # Targeted regex substitution instead of a full ConvertTo-Json round-trip, so the rest of the
+    # file's hand-written formatting (2-space indent, etc.) is left untouched - PowerShell 5.1's
+    # ConvertTo-Json indents nested objects in a way that's hard to read after a round-trip.
+    $pattern = '("cpu"\s*:\s*\{[^{}]*"duration_minutes"\s*:\s*)\d+'
+    if ($text -notmatch $pattern) {
+        Write-Host 'Could not find cpu.duration_minutes in the expected shape - leaving the file untouched.' -ForegroundColor Red
+        return
+    }
+    $newText = $text -replace $pattern, "`${1}$minutes"
+    Set-Content -Path $ServerConfigPath -Value $newText -NoNewline -Encoding utf8
+    Write-Host "Set CPU test duration to $minutes minute(s) in $ServerConfigPath." -ForegroundColor Green
+}
+
 function Open-Prime95Folder {
     New-Item -ItemType Directory -Force -Path $Prime95Dir | Out-Null
     Start-Process explorer.exe $Prime95Dir
@@ -191,8 +251,9 @@ while ($running) {
     Write-Host '  5) Launch app - dev mode (dotnet run, unelevated, fast iteration)'
     Write-Host '  6) Set/update technician API key'
     Write-Host '  7) Set server URL'
-    Write-Host '  8) Open tools\prime95 folder'
-    Write-Host '  9) Exit'
+    Write-Host '  8) Set CPU test duration (server config)'
+    Write-Host '  9) Open tools\prime95 folder'
+    Write-Host '  10) Exit'
     Write-Host ''
 
     $choice = Read-Host -Prompt 'Choice'
@@ -206,8 +267,9 @@ while ($running) {
         '5' { Start-AppDev }
         '6' { Set-ApiKey }
         '7' { Set-ServerUrl }
-        '8' { Open-Prime95Folder }
-        '9' { $running = $false }
+        '8' { Set-CpuTestDuration }
+        '9' { Open-Prime95Folder }
+        '10' { $running = $false }
         default { Write-Host 'Not a valid choice.' -ForegroundColor Red }
     }
 
