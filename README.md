@@ -12,6 +12,13 @@ test only (Prime95), to prove the sensor-driver risk (see below) and the CONTRAC
 API/WebSocket shapes work end-to-end before GPU/RAM/SSD wrappers are added. GPU/RAM/SSD
 checkboxes exist in the UI but are disabled/greyed ("coming soon") - not wired to anything.
 
+One exception: `Services/SsdSmartReader.cs` (drive identity + S.M.A.R.T. health via
+LibreHardwareMonitorLib) exists and is unit tested, ground-truthed against real NVMe hardware -
+but it's a standalone building block only. It isn't called from `TestSessionController`, has no
+UI checkbox, and CrystalDiskMark's actual benchmark (sequential read/write throughput,
+CONTRACT.md §3's `min_seq_*_mb_s`) isn't implemented at all. Full SSD test-run orchestration
+(exclusive-concurrency wiring, session `ssd_serials`, UI) is future work, same as GPU/RAM.
+
 The client never computes pass/fail and never shows results locally - that's server/dashboard
 only, by design (CONTRACT.md §7, PROJECT_PLAN.md §4).
 
@@ -170,6 +177,18 @@ whoever built the server:
    upgrade request (one of the two options CONTRACT.md §1 allows). The `?api_key=` query-param
    fallback is not exercised client-side - the server must still accept both per contract, but
    nothing in this repo tests that path.
+8. **`smart_reallocated_sectors_max` has no NVMe equivalent.** CONTRACT.md §3's SSD threshold
+   is a classic ATA/SATA SMART attribute (ID 5) - NVMe drives don't have "reallocated sectors"
+   as a concept at all. Ground-truthed against two real NVMe drives on this dev machine:
+   `SsdSmartReader` correctly leaves `ReallocatedSectorsCount` null for NVMe and instead
+   populates NVMe-specific `PercentageUsed`/`AvailableSparePercent` (see
+   `Services/SsdSmartReader.cs` class remarks for the full attribute-ID mapping, including the
+   gotcha that NVMe attribute ID 5 means "Percentage Used" while ATA ID 5 means "Reallocated
+   Sectors Count" - same number, unrelated meaning). The server has no config threshold or
+   result-computation handling for the NVMe fields yet - worth a CONTRACT.md §3 update once SSD
+   testing is wired up end-to-end, since most current-generation SSDs are NVMe. The ATA-side
+   mapping (IDs 5 and 9) is the standard, widely-documented SMART table but **not yet validated
+   against a real ATA/SATA drive** in this codebase.
 
 ## Repo layout
 
@@ -182,6 +201,8 @@ src/Luxtronic.PCTools/        WPF client app (net8.0-windows)
     LuxApiClient.cs            REST calls from CONTRACT.md §4
     TelemetryPublisher.cs      /ws/telemetry client (CONTRACT.md §5)
     SensorMonitor.cs           LibreHardwareMonitorLib + WMI mobo-serial wrapper
+    SsdSmartReader.cs          LibreHardwareMonitorLib Storage/SMART wrapper (drive identity + health -
+                                 not yet wired into TestSessionController/UI, see "Current scope" below)
     Prime95Runner.cs           Prime95 process wrapper
     TestSessionController.cs   Orchestrates one full CPU test session end-to-end
   MainWindow.xaml(.cs)         The one screen: session form, test checkboxes, Start/Stop, log
