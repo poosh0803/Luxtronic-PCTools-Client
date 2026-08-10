@@ -32,10 +32,40 @@ public partial class MainWindow : Window
         Closing += MainWindow_Closing;
     }
 
-    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         InitializeSensors();
         InitializeSsdSummary();
+        await InitializeCpuDurationAsync().ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Shows the server-configured CPU test duration before the technician clicks Start, not
+    /// just after (RunCpuTestSessionAsync fetches its own fresh copy at run time regardless - see
+    /// TestSessionController.GetConfigAsync remarks). Best-effort: if the server's unreachable at
+    /// app open, this just leaves a clear placeholder rather than blocking startup - the same
+    /// fetch happens again for real when Start is clicked.
+    /// </summary>
+    private async Task InitializeCpuDurationAsync()
+    {
+        if (_controller is null)
+        {
+            CpuDurationText.Text = "(duration unavailable - controller not initialized)";
+            return;
+        }
+
+        try
+        {
+            var config = await _controller.GetConfigAsync().ConfigureAwait(true);
+            CpuDurationText.Text = config.Cpu is { } cpuCfg
+                ? $"(duration: {cpuCfg.DurationMinutes} min)"
+                : "(duration: not set in server config)";
+        }
+        catch (Exception ex)
+        {
+            CpuDurationText.Text = "(duration unavailable - could not reach server)";
+            AppendLog($"WARNING: could not fetch server config for duration display: {ex.Message}");
+        }
     }
 
     /// <summary>

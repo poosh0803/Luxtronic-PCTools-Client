@@ -32,6 +32,13 @@ public sealed class TestSessionController : IAsyncDisposable
 
     public bool IsRunning { get; private set; }
 
+    /// <summary>Fetches the current server config (CONTRACT.md §3) without starting a session or
+    /// test run - used by the UI to show the configured CPU duration before the technician clicks
+    /// Start, not just after. RunCpuTestSessionAsync fetches its own fresh copy at test-run time
+    /// regardless (config could change between an early UI display and an actual run), so this is
+    /// purely informational.</summary>
+    public Task<ServerConfig> GetConfigAsync(CancellationToken ct = default) => _api.GetConfigAsync(ct);
+
     public TestSessionController(
         AppSettingsProvider settings, ApiKeyProvider apiKey, SensorMonitor sensors, Prime95Runner prime95)
     {

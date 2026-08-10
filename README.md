@@ -12,17 +12,23 @@ test only (Prime95), to prove the sensor-driver risk (see below) and the CONTRAC
 API/WebSocket shapes work end-to-end before GPU/RAM/SSD wrappers are added. GPU/RAM/SSD
 checkboxes exist in the UI but are disabled/greyed ("coming soon") - not wired to anything.
 
-One exception: `Services/SsdSmartReader.cs` (drive identity + S.M.A.R.T. health via
-LibreHardwareMonitorLib) is wired up and reports to the server - see
-[SSD_SMART_ADDENDUM.md](../Luxtronic-PCTools/SSD_SMART_ADDENDUM.md) in the shared planning repo
-for the full contract (verified working end-to-end against a live server, no server-side changes
-needed). This happens automatically after every CPU test run, regardless of the (still
-disabled/"coming soon") SSD checkbox - `TestSessionController.SubmitSsdSmartDataAsync()` submits
-one `component: "ssd"` test_run per detected drive, and `ssd_serials` is now populated at session
-creation. What's still missing: CrystalDiskMark's actual throughput benchmark (sequential
-read/write, CONTRACT.md §3's `min_seq_*_mb_s`) isn't implemented at all, and there's no UI
-checkbox or exclusive-concurrency wiring for a technician-initiated SSD test - this is SMART
-health reporting only, piggybacking on the CPU test session.
+Two exceptions:
+
+- `Services/SsdSmartReader.cs` (drive identity + S.M.A.R.T. health via LibreHardwareMonitorLib)
+  is wired up and reports to the server - see
+  [SSD_SMART_ADDENDUM.md](../Luxtronic-PCTools/SSD_SMART_ADDENDUM.md) in the shared planning repo
+  for the full contract (verified working end-to-end against a live server, no server-side
+  changes needed). This happens automatically after every CPU test run, regardless of the (still
+  disabled/"coming soon") SSD checkbox - `TestSessionController.SubmitSsdSmartDataAsync()`
+  submits one `component: "ssd"` test_run per detected drive, and `ssd_serials` is now populated
+  at session creation. What's still missing: CrystalDiskMark's actual throughput benchmark
+  (sequential read/write, CONTRACT.md §3's `min_seq_*_mb_s`) isn't implemented at all, and
+  there's no UI checkbox or exclusive-concurrency wiring for a technician-initiated SSD test -
+  this is SMART health reporting only, piggybacking on the CPU test session.
+- GPU sensors (temp, hot spot, core/memory clock, load, fan, power, VRAM) are read via
+  `SensorMonitor.ReadGpu()` and shown live in the UI (see below), but purely for display - unlike
+  SSD SMART data, none of it is sent to the server. No FurMark wrapper, no GPU test_run, no
+  telemetry. Display only.
 
 The client never computes pass/fail and never shows results locally - that's server/dashboard
 only, by design (CONTRACT.md §7, PROJECT_PLAN.md §4).
@@ -102,13 +108,19 @@ dotnet build LuxtronicPCTools.sln
 3. Drop a real `prime95.exe` into `tools/prime95/` (step 2 above).
 4. Build and launch the exe **from an elevated (Administrator) shell/shortcut** - required for
    sensor access.
-5. On launch, check the "Machine identity" panel: it should show a real motherboard serial and
-   a green "Sensors OK - N sensor(s) found" status. If it instead shows the red WARNING about
-   0 sensors, see "Known risk" below before going further.
+5. On launch, check the "Machine identity" panel: it should show a real motherboard serial, a
+   live-updating CPU readout in green (e.g. "CPU: 40C   Load: 12%   4187 MHz   Fan: 2303 RPM" -
+   updates every second) rather than a static message, a live GPU readout (or "(no GPU
+   detected)"), and an SSD S.M.A.R.T. summary line per detected drive. If the CPU line instead
+   shows a red WARNING, see "Known risk" below before going further. Also confirm the CPU
+   checkbox shows a real "(duration: N min)" next to it, not "(duration: checking...)" stuck or
+   an "unavailable" message - that's `GET /api/config` succeeding before Start is even clicked.
 6. Fill in customer name / new-build-or-repair / notes, leave the CPU checkbox ticked (it's
    the only one enabled), click **Start**. Watch the status log for each contract call
    (`GET /api/config`, `POST /api/sessions`, `POST .../test-runs`, WebSocket connect) and
-   confirm each succeeds against the real server rather than throwing.
+   confirm each succeeds against the real server rather than throwing. Also confirm the log shows
+   SSD SMART data being reported per drive right after the CPU test run completes (before the
+   session ends) - that's `SubmitSsdSmartDataAsync` running.
 7. Confirm telemetry is actually arriving server-side (e.g. via the server's own logs/DB, or
    its dashboard once that exists) while the CPU test runs.
 8. Click **Stop** partway through and confirm the run completes cleanly with
@@ -194,9 +206,17 @@ whoever built the server:
    already-generic `max_`/`min_` convention-based threshold matching handles the NVMe-specific
    `summary_stats` keys (`max_smart_percentage_used` etc.) with no server-side code changes -
    confirmed via a live end-to-end test against a running server that returned the correct
-   `result`. The ATA-side
-   mapping (IDs 5 and 9) is the standard, widely-documented SMART table but **not yet validated
-   against a real ATA/SATA drive** in this codebase.
+   `result`. The ATA-side mapping (IDs 5, 9, 12) is now also confirmed against a real ATA/SATA
+   drive (a WD SATA SSD in a USB enclosure) rather than just the documented SMART spec - see
+   `SsdSmartReader.cs` class remarks and SSD_SMART_ADDENDUM.md §4 for the exact values.
+9. **CPU duration is fetched twice.** The "Tests to run" panel shows the server-configured CPU
+   duration (`TestSessionController.GetConfigAsync()`) as soon as the app opens, so a technician
+   can see it before deciding to click Start - `RunCpuTestSessionAsync` then fetches its own
+   fresh copy at actual test-run time regardless, per CONTRACT.md's "client fetches thresholds at
+   session start" model. If `config/default.json` is hand-edited on the server between app open
+   and clicking Start, the displayed duration could theoretically be stale for a few seconds/
+   minutes until Start re-fetches - the *test itself* always uses the fresh value, so this is a
+   display-only edge case, not a correctness one.
 
 ## Repo layout
 
@@ -208,12 +228,22 @@ src/Luxtronic.PCTools/        WPF client app (net8.0-windows)
     ApiKeyProvider.cs          Reads the technician API key file
     LuxApiClient.cs            REST calls from CONTRACT.md §4
     TelemetryPublisher.cs      /ws/telemetry client (CONTRACT.md §5)
-    SensorMonitor.cs           LibreHardwareMonitorLib + WMI mobo-serial wrapper
-    SsdSmartReader.cs          LibreHardwareMonitorLib Storage/SMART wrapper (drive identity + health -
-                                 not yet wired into TestSessionController/UI, see "Current scope" below)
+    SensorMonitor.cs           LibreHardwareMonitorLib (CPU + GPU + Storage, one shared Computer -
+                                 see its class remarks for why) + WMI mobo-serial wrapper
+    SsdSmartReader.cs          Storage/SMART attribute extraction + summary_stats/tool_output_raw
+                                 builders, called by SensorMonitor.ReadSsds() and
+                                 TestSessionController.SubmitSsdSmartDataAsync() - see "Current scope" above
     Prime95Runner.cs           Prime95 process wrapper
-    TestSessionController.cs   Orchestrates one full CPU test session end-to-end
-  MainWindow.xaml(.cs)         The one screen: session form, test checkboxes, Start/Stop, log
+    TestSessionController.cs   Orchestrates one full CPU test session end-to-end, plus the
+                                 per-drive SSD SMART reporting described above
+  MainWindow.xaml(.cs)         The one screen: session form (customer/type/notes), test checkboxes
+                                 with the server-configured CPU duration shown next to the CPU one,
+                                 machine identity panel (mobo serial, live CPU sensor readout, live
+                                 GPU readout, SSD SMART summary), Start/Stop, status log
   app.manifest                 requireAdministrator
+dev-menu.ps1                   PowerShell dev launcher/menu (build, test, launch elevated or via
+                                 dotnet run, set API key/server URL, set CPU test duration in the
+                                 Server repo's config) - stands in for a proper installer/shortcut
+                                 during development, not part of the shipped app
 tools/prime95/README.md        Placeholder - drop prime95.exe here manually (not auto-downloaded)
 ```
