@@ -94,4 +94,45 @@ public class SsdSmartReaderTests
         Assert.Equal("21182EA3AFE6", info.SerialNumber);
         Assert.Equal(47.0, info.TemperatureC);
     }
+
+    [Fact]
+    public void FormatSsdSummary_Nvme_ShowsUsedAndSpareNotReallocated()
+    {
+        var info = SsdSmartReader.BuildSsdInfo("CT1000P2SSD8", "2050E4D9C945", isNvme: true, temperatureC: 44.0, RealNvmeAttributes);
+
+        var text = SsdSmartReader.FormatSsdSummary(info);
+
+        Assert.Contains("CT1000P2SSD8 (2050E4D9C945)", text);
+        Assert.Contains("44C", text);
+        Assert.Contains("Used: 8%", text);
+        Assert.Contains("Spare: 100%", text);
+        Assert.DoesNotContain("Reallocated", text);
+    }
+
+    [Fact]
+    public void FormatSsdSummary_Ata_ShowsReallocatedAndPowerOnNotUsedOrSpare()
+    {
+        var ataAttributes = new Dictionary<byte, float> { [5] = 3, [9] = 12000 };
+        var info = SsdSmartReader.BuildSsdInfo("Samsung 860 EVO", "S3Z9NB0K123456", isNvme: false, temperatureC: 35.0, ataAttributes);
+
+        var text = SsdSmartReader.FormatSsdSummary(info);
+
+        Assert.Contains("Samsung 860 EVO (S3Z9NB0K123456)", text);
+        Assert.Contains("35C", text);
+        Assert.Contains("Reallocated: 3", text);
+        Assert.Contains("Power-on: 12000h", text);
+        Assert.DoesNotContain("Used:", text);
+        Assert.DoesNotContain("Spare:", text);
+    }
+
+    [Fact]
+    public void FormatSsdSummary_MissingSerialAndTemperature_UsesPlaceholders()
+    {
+        var info = SsdSmartReader.BuildSsdInfo("Unknown Drive", null, isNvme: true, temperatureC: null, new Dictionary<byte, float>());
+
+        var text = SsdSmartReader.FormatSsdSummary(info);
+
+        Assert.Contains("Unknown Drive (no serial)", text);
+        Assert.Contains(": --   Used: --   Spare: --", text);
+    }
 }

@@ -151,6 +151,30 @@ public sealed class SsdSmartReader : IDisposable
             percentageUsed, availableSpare, reallocatedSectors, powerOnHours, mediaErrors);
     }
 
+    /// <summary>
+    /// One-line summary for the UI (e.g. "CT1000P2SSD8 (2050E4D9C945): 44C   Used: 8%   Spare:
+    /// 100%" for NVMe, or "Model (Serial): 35C   Reallocated: 3   Power-on: 12000h" for ATA/SATA)
+    /// - shows the fields that are actually meaningful for the drive's bus type rather than a
+    /// fixed set of columns, since (per class remarks) NVMe and ATA/SATA drives don't share a
+    /// SMART vocabulary. "--" stands in for any null field.
+    /// </summary>
+    internal static string FormatSsdSummary(SsdSmartInfo info)
+    {
+        var serial = info.SerialNumber ?? "no serial";
+        var temp = info.TemperatureC is double t ? $"{t:F0}C" : "--";
+
+        if (info.IsNvme)
+        {
+            var used = info.PercentageUsed is double u ? $"{u:F0}%" : "--";
+            var spare = info.AvailableSparePercent is double s ? $"{s:F0}%" : "--";
+            return $"{info.Model} ({serial}): {temp}   Used: {used}   Spare: {spare}";
+        }
+
+        var reallocated = info.ReallocatedSectorsCount is long r ? r.ToString() : "--";
+        var hours = info.PowerOnHours is long h ? $"{h}h" : "--";
+        return $"{info.Model} ({serial}): {temp}   Reallocated: {reallocated}   Power-on: {hours}";
+    }
+
     private static double? GetDouble(IReadOnlyDictionary<byte, float> attributesById, byte id) =>
         attributesById.TryGetValue(id, out var value) ? value : null;
 

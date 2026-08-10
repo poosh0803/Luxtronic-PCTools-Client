@@ -35,6 +35,7 @@ public partial class MainWindow : Window
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         InitializeSensors();
+        InitializeSsdSummary();
     }
 
     /// <summary>
@@ -110,6 +111,38 @@ public partial class MainWindow : Window
         }
 
         AppendLog($"Server: {_settings.ServerBaseUrl}");
+    }
+
+    /// <summary>
+    /// One-time point-in-time SMART read at app open, shown for informational/visibility purposes
+    /// only - SsdSmartReader isn't wired into TestSessionController/orchestration yet (see
+    /// README's "Current scope"), so this never blocks Start or affects the CPU test either way.
+    /// </summary>
+    private void InitializeSsdSummary()
+    {
+        try
+        {
+            using var ssdReader = new SsdSmartReader();
+            ssdReader.Initialize();
+            var drives = ssdReader.ReadAll();
+
+            if (drives.Count == 0)
+            {
+                SsdSummaryText.Text = "(no drives detected via LibreHardwareMonitorLib)";
+                return;
+            }
+
+            SsdSummaryText.Text = string.Join(Environment.NewLine, drives.Select(SsdSmartReader.FormatSsdSummary));
+            foreach (var drive in drives)
+            {
+                AppendLog($"SSD detected: {SsdSmartReader.FormatSsdSummary(drive)}");
+            }
+        }
+        catch (Exception ex)
+        {
+            SsdSummaryText.Text = $"SMART read failed: {ex.Message}";
+            AppendLog($"WARNING: SSD SMART read failed: {ex.Message}");
+        }
     }
 
     private async void StartButton_Click(object sender, RoutedEventArgs e)

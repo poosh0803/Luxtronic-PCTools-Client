@@ -31,6 +31,7 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="150"/>
@@ -41,7 +42,10 @@
                 <TextBlock Grid.Row="0" Grid.Column="1" x:Name="MoboSerialText" Text="(reading...)" VerticalAlignment="Center" Margin="0,4,0,4"/>
 
                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Sensor status:" FontWeight="SemiBold" VerticalAlignment="Top"/>
-                <TextBlock Grid.Row="1" Grid.Column="1" x:Name="SensorStatusText" Text="(checking...)" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" x:Name="SensorStatusText" Text="(checking...)" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,0,4"/>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Storage (S.M.A.R.T.):" FontWeight="SemiBold" VerticalAlignment="Top"/>
+                <TextBlock Grid.Row="2" Grid.Column="1" x:Name="SsdSummaryText" Text="(reading...)" TextWrapping="Wrap" VerticalAlignment="Center"/>
             </Grid>
         </GroupBox>
 
