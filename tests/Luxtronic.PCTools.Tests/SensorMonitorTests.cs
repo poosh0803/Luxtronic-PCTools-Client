@@ -122,4 +122,52 @@ public class SensorMonitorTests
         Assert.Contains("4200 MHz", text);
         Assert.Contains("Fan: --", text);
     }
+
+    [Fact]
+    public void FormatGpuLiveReadout_NullReading_ReportsNoGpuDetected()
+    {
+        Assert.Equal("(no GPU detected)", SensorMonitor.FormatGpuLiveReadout(null));
+    }
+
+    [Fact]
+    public void FormatGpuLiveReadout_AllValuesPresent_FormatsEachField()
+    {
+        // Ground-truthed against a real NVIDIA GTX 1080 Ti.
+        var reading = new GpuReadings(
+            CoreTempC: 38.0, HotSpotTempC: 52.1, CoreClockMhz: 1480.7, MemoryClockMhz: 5508.0,
+            LoadPct: 25.4, FanRpm: 1092.0, PowerW: 63.6, MemoryUsedMb: 1626.0, MemoryTotalMb: 11264.0);
+
+        var text = SensorMonitor.FormatGpuLiveReadout(reading);
+
+        Assert.Contains("GPU: 38C (hotspot 52C)", text);
+        Assert.Contains("Load: 25%", text);
+        Assert.Contains("Core: 1481 MHz", text);
+        Assert.Contains("Mem: 5508 MHz", text);
+        Assert.Contains("Fan: 1092 RPM", text);
+        Assert.Contains("Power: 64W", text);
+        Assert.Contains("VRAM: 1626/11264 MB", text);
+    }
+
+    [Fact]
+    public void FormatGpuLiveReadout_AllValuesNull_UsesPlaceholderForEachField()
+    {
+        var reading = new GpuReadings(null, null, null, null, null, null, null, null, null);
+
+        var text = SensorMonitor.FormatGpuLiveReadout(reading);
+
+        Assert.Equal("GPU: -- (hotspot --)   Load: --   Core: --   Mem: --   Fan: --   Power: --   VRAM: --", text);
+    }
+
+    [Fact]
+    public void FormatGpuLiveReadout_OnlyOneOfMemUsedOrTotalPresent_VramIsPlaceholder()
+    {
+        // VRAM is shown as "used/total" - a partial reading (e.g. total known but used missing
+        // this cycle) can't form that pair, so it must fall back to the placeholder rather than
+        // showing a misleading half-formed value like "1626/-- MB".
+        var reading = new GpuReadings(null, null, null, null, null, null, null, MemoryUsedMb: 1626.0, MemoryTotalMb: null);
+
+        var text = SensorMonitor.FormatGpuLiveReadout(reading);
+
+        Assert.Contains("VRAM: --", text);
+    }
 }

@@ -10,6 +10,22 @@ public sealed record SensorReadings(
     double? CpuFanRpm,
     double? CpuFrequencyMhz);
 
+/// <summary>
+/// One GPU's live readings. Ground-truthed against a real NVIDIA GTX 1080 Ti - field-matching
+/// logic (see <see cref="SensorMonitor.ReadGpu"/>) has not been validated against AMD/Intel GPUs,
+/// which may use different sensor names for the same metrics.
+/// </summary>
+public sealed record GpuReadings(
+    double? CoreTempC,
+    double? HotSpotTempC,
+    double? CoreClockMhz,
+    double? MemoryClockMhz,
+    double? LoadPct,
+    double? FanRpm,
+    double? PowerW,
+    double? MemoryUsedMb,
+    double? MemoryTotalMb);
+
 public sealed class SensorInitResult
 {
     public bool DriverLikelyLoaded { get; init; }
@@ -50,7 +66,7 @@ public sealed class SensorMonitor : IDisposable
             IsCpuEnabled = true,
             IsMotherboardEnabled = true, // needed for Super IO fan/temp sensors on many boards
             IsMemoryEnabled = false,
-            IsGpuEnabled = false,
+            IsGpuEnabled = true,
             IsStorageEnabled = true,
             IsNetworkEnabled = false,
             IsControllerEnabled = true,
@@ -229,6 +245,85 @@ public sealed class SensorMonitor : IDisposable
         return SsdSmartReader.ReadAll(_computer.Hardware);
     }
 
+    /// <summary>Re-polls hardware and returns the current GPU readings, or null if no GPU
+    /// hardware was detected (e.g. integrated-graphics-only machines LHM can't distinguish, or a
+    /// vendor LHM doesn't support). Same shared Computer/visitor as <see cref="ReadCpu"/> - see
+    /// class remarks. Field-matching only ground-truthed against NVIDIA so far.</summary>
+    public GpuReadings? ReadGpu()
+    {
+        if (!_initialized)
+        {
+            throw new InvalidOperationException("SensorMonitor.Initialize() must be called first.");
+        }
+
+        _computer.Accept(_visitor);
+
+        var gpu = _computer.Hardware.FirstOrDefault(h =>
+            h.HardwareType is HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel);
+        if (gpu is null)
+        {
+            return null;
+        }
+
+        double? coreTemp = null, hotSpotTemp = null, coreClock = null, memClock = null;
+        double? load = null, fan = null, power = null, memUsed = null, memTotal = null;
+
+        foreach (var sensor in EnumerateSensorsRecursive(gpu))
+        {
+            if (sensor.Value is null)
+            {
+                continue;
+            }
+
+            double value = sensor.Value.Value;
+
+            switch (sensor.SensorType)
+            {
+                case SensorType.Temperature when hotSpotTemp is null &&
+                    sensor.Name.Contains("Hot Spot", StringComparison.OrdinalIgnoreCase):
+                    hotSpotTemp = value;
+                    break;
+                case SensorType.Temperature when coreTemp is null &&
+                    sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase):
+                    coreTemp = value;
+                    break;
+                case SensorType.Clock when coreClock is null &&
+                    sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase):
+                    coreClock = value;
+                    break;
+                case SensorType.Clock when memClock is null &&
+                    sensor.Name.Contains("Memory", StringComparison.OrdinalIgnoreCase):
+                    memClock = value;
+                    break;
+                // Exact match, not Contains: "GPU Core" load is the overall utilization %, but
+                // "GPU Memory Controller"/"GPU Video Engine"/"GPU Bus"/"GPU Power"/"GPU Board
+                // Power" are also SensorType.Load with "GPU" in the name - Contains would grab
+                // whichever came first in enumeration order instead of the one that means "load".
+                case SensorType.Load when load is null &&
+                    sensor.Name.Equals("GPU Core", StringComparison.OrdinalIgnoreCase):
+                    load = value;
+                    break;
+                case SensorType.Fan when fan is null:
+                    fan = value;
+                    break;
+                case SensorType.Power when power is null &&
+                    sensor.Name.Contains("Package", StringComparison.OrdinalIgnoreCase):
+                    power = value;
+                    break;
+                case SensorType.SmallData when memUsed is null &&
+                    sensor.Name.Contains("Memory Used", StringComparison.OrdinalIgnoreCase):
+                    memUsed = value;
+                    break;
+                case SensorType.SmallData when memTotal is null &&
+                    sensor.Name.Contains("Memory Total", StringComparison.OrdinalIgnoreCase):
+                    memTotal = value;
+                    break;
+            }
+        }
+
+        return new GpuReadings(coreTemp, hotSpotTemp, coreClock, memClock, load, fan, power, memUsed, memTotal);
+    }
+
     /// <summary>
     /// Pure averaging helper split out from <see cref="ReadCpu"/> so it's unit testable without
     /// real hardware. Returns null (not 0 or NaN) when no core clock sensors were found, so the
@@ -252,6 +347,31 @@ public sealed class SensorMonitor : IDisposable
         var clock = reading.CpuFrequencyMhz is double f ? $"{f:F0} MHz" : "--";
         var fan = reading.CpuFanRpm is double r ? $"{r:F0} RPM" : "--";
         return $"CPU: {temp}   Load: {load}   {clock}   Fan: {fan}";
+    }
+
+    /// <summary>Live readout for the UI's GPU status line, same "--" placeholder convention as
+    /// <see cref="FormatLiveReadout"/>. Null input (no GPU detected) gets its own message rather
+    /// than a line full of placeholders.</summary>
+    internal static string FormatGpuLiveReadout(GpuReadings? reading)
+    {
+        if (reading is null)
+        {
+            return "(no GPU detected)";
+        }
+
+        var temp = reading.CoreTempC is double t ? $"{t:F0}C" : "--";
+        var hotSpot = reading.HotSpotTempC is double h ? $"{h:F0}C" : "--";
+        var load = reading.LoadPct is double l ? $"{l:F0}%" : "--";
+        var coreClock = reading.CoreClockMhz is double cc ? $"{cc:F0} MHz" : "--";
+        var memClock = reading.MemoryClockMhz is double mc ? $"{mc:F0} MHz" : "--";
+        var fan = reading.FanRpm is double f ? $"{f:F0} RPM" : "--";
+        var power = reading.PowerW is double p ? $"{p:F0}W" : "--";
+        var vram = reading.MemoryUsedMb is double mu && reading.MemoryTotalMb is double mt
+            ? $"{mu:F0}/{mt:F0} MB"
+            : "--";
+
+        return $"GPU: {temp} (hotspot {hotSpot})   Load: {load}   Core: {coreClock}   Mem: {memClock}   " +
+               $"Fan: {fan}   Power: {power}   VRAM: {vram}";
     }
 
     private static int CountSensorsRecursive(IHardware hw) => EnumerateSensorsRecursive(hw).Count();

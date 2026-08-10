@@ -248,6 +248,19 @@ public partial class MainWindow : Window
             {
                 AppendLog($"Idle sensor poll failed: {ex.Message}");
             }
+
+            // GPU isn't part of TestSessionController's poll loop (CPU-only test this pass), so
+            // this - the idle timer - is its only reader. It naturally goes stale during a CPU
+            // test run (timer stopped, same as CPU's live readout freezing), which is fine since
+            // no GPU test can be running concurrently anyway (no GPU checkbox wired up yet).
+            try
+            {
+                GpuStatusText.Text = SensorMonitor.FormatGpuLiveReadout(_sensors!.ReadGpu());
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Idle GPU poll failed: {ex.Message}");
+            }
         };
         _idleSensorTimer.Start();
     }
