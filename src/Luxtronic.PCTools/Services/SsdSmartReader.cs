@@ -94,10 +94,7 @@ public static class SsdSmartReader
             var model = storage?.Model ?? hw.Name;
             var serial = storage?.SerialNumber;
 
-            double? tempC = hw.Sensors
-                .FirstOrDefault(s => s.SensorType == SensorType.Temperature &&
-                                      s.Name.Contains("Composite", StringComparison.OrdinalIgnoreCase))
-                ?.Value;
+            double? tempC = FindTemperature(hw);
 
             var attributesById = storageDevice.Attributes
                 .GroupBy(a => a.Id)
@@ -107,6 +104,30 @@ public static class SsdSmartReader
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// NVMe drives report a "Composite Temperature" sensor, checked first since it's the primary
+    /// reading. ATA/SATA drives (confirmed via a real WD SATA SSD, connected over USB) instead
+    /// report a sensor literally named "Temperature" with no "Composite" qualifier - checked only
+    /// as a fallback so it can't accidentally match NVMe's "Warning Temperature"/"Critical
+    /// Temperature" sensors, which are threshold values, not actual readings, and would otherwise
+    /// be the closest exact-name match if this were reordered.
+    /// </summary>
+    private static double? FindTemperature(IHardware hw)
+    {
+        var composite = hw.Sensors.FirstOrDefault(s =>
+            s.SensorType == SensorType.Temperature &&
+            s.Name.Contains("Composite", StringComparison.OrdinalIgnoreCase));
+        if (composite is not null)
+        {
+            return composite.Value;
+        }
+
+        var plain = hw.Sensors.FirstOrDefault(s =>
+            s.SensorType == SensorType.Temperature &&
+            s.Name.Equals("Temperature", StringComparison.OrdinalIgnoreCase));
+        return plain?.Value;
     }
 
     /// <summary>
