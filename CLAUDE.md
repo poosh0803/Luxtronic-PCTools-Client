@@ -4,9 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-**Pre-implementation.** This repo currently contains only planning documents — no code has been written yet. Before writing code, read [PROJECT_PLAN.md](PROJECT_PLAN.md) in full; it is the source of truth for architecture and scope decisions. [CONTRACT.md](CONTRACT.md) is the frozen API/DB/config contract both the server and PC-client implementations must match exactly — treat it as canonical, not a suggestion, since the two sides are built independently against it. [answer.txt](answer.txt) has the raw Q&A the plan was derived from, useful if a decision's rationale needs revisiting.
+**Active development — real code exists here.** This is the `Luxtronic-PCTools-Client` repo
+specifically (WPF app, `src/Luxtronic.PCTools/`), not the shared planning repo this file's
+boilerplate below still describes. **Read [HANDOFF.md](HANDOFF.md) first** — it's a
+session-by-session account of what's built, what's pending, and hard-won debugging context from
+testing on real hardware (multiple technician PCs/laptops, not just this dev box) that isn't
+written down anywhere else. [README.md](README.md) has full build/run/test/deploy instructions.
+[PROJECT_PLAN.md](PROJECT_PLAN.md) is still the source-of-truth for architecture/scope decisions,
+and [CONTRACT.md](CONTRACT.md) is the frozen API/DB/config contract shared with the server side —
+treat it as canonical, not a suggestion.
 
-Once real code exists, this file should be rewritten to include actual build/lint/test commands per subproject — do not invent commands here in the meantime.
+Quick commands (see README.md for the full picture, `dev-menu.ps1` for an interactive menu
+covering all of this plus API key / server URL / CPU duration setup):
+
+```powershell
+dotnet build LuxtronicPCTools.sln
+dotnet test LuxtronicPCTools.sln
+powershell -ExecutionPolicy Bypass -File .\dev-menu.ps1   # or double-click dev-menu.bat
+```
 
 ## What this project is
 
