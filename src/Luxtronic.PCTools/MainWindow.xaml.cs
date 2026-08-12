@@ -43,12 +43,13 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Shows the server-configured CPU and GPU test durations before the technician clicks Start,
-    /// not just after (RunCpuTestSessionAsync/RunGpuTestSessionAsync each fetch their own fresh
-    /// copy at run time regardless - see TestSessionController.GetConfigAsync remarks). One config
-    /// fetch, not two, since both durations come from the same GET /api/config response.
-    /// Best-effort: if the server's unreachable at app open, this just leaves a clear placeholder
-    /// rather than blocking startup - the same fetch happens again for real when Start is clicked.
+    /// Shows the server-configured CPU/GPU/RAM test durations before the technician clicks Start,
+    /// not just after (RunCpuTestSessionAsync/RunGpuTestSessionAsync/RunRamTestSessionAsync each
+    /// fetch their own fresh copy at run time regardless - see
+    /// TestSessionController.GetConfigAsync remarks). One config fetch, not three, since all three
+    /// durations come from the same GET /api/config response. Best-effort: if the server's
+    /// unreachable at app open, this just leaves a clear placeholder rather than blocking startup -
+    /// the same fetch happens again for real when Start is clicked.
     /// </summary>
     private async Task InitializeDurationTextsAsync()
     {
@@ -56,6 +57,7 @@ public partial class MainWindow : Window
         {
             CpuDurationText.Text = "(duration unavailable - controller not initialized)";
             GpuDurationText.Text = "(duration unavailable - controller not initialized)";
+            RamDurationText.Text = "(duration unavailable - controller not initialized)";
             return;
         }
 
@@ -68,11 +70,15 @@ public partial class MainWindow : Window
             GpuDurationText.Text = config.Gpu is { } gpuCfg
                 ? $"(duration: {gpuCfg.DurationMinutes} min)"
                 : "(duration: not set in server config)";
+            RamDurationText.Text = config.Ram is { } ramCfg
+                ? $"(duration: {ramCfg.DurationMinutes} min)"
+                : "(duration: not set in server config)";
         }
         catch (Exception ex)
         {
             CpuDurationText.Text = "(duration unavailable - could not reach server)";
             GpuDurationText.Text = "(duration unavailable - could not reach server)";
+            RamDurationText.Text = "(duration unavailable - could not reach server)";
             AppendLog($"WARNING: could not fetch server config for duration display: {ex.Message}");
         }
     }
@@ -131,6 +137,8 @@ public partial class MainWindow : Window
             CpuTestCheck.IsChecked = false;
             GpuTestCheck.IsEnabled = false;
             GpuTestCheck.IsChecked = false;
+            RamTestCheck.IsEnabled = false;
+            RamTestCheck.IsChecked = false;
             StartButton.IsEnabled = false;
 
             // Best-effort: if the stuck call eventually does return, at least log it instead of
@@ -172,8 +180,10 @@ public partial class MainWindow : Window
                     CpuTestCheck.IsChecked = false;
                     GpuTestCheck.IsEnabled = false;
                     GpuTestCheck.IsChecked = false;
+                    RamTestCheck.IsEnabled = false;
+                    RamTestCheck.IsChecked = false;
                     StartButton.IsEnabled = false;
-                    AppendLog("CPU/GPU tests disabled: sensors are not reporting data. Fix the driver/elevation issue above and restart the app.");
+                    AppendLog("CPU/GPU/RAM tests disabled: sensors are not reporting data. Fix the driver/elevation issue above and restart the app.");
                 }
                 else
                 {
@@ -191,6 +201,8 @@ public partial class MainWindow : Window
                 CpuTestCheck.IsChecked = false;
                 GpuTestCheck.IsEnabled = false;
                 GpuTestCheck.IsChecked = false;
+                RamTestCheck.IsEnabled = false;
+                RamTestCheck.IsChecked = false;
                 StartButton.IsEnabled = false;
             }
         }
@@ -201,7 +213,8 @@ public partial class MainWindow : Window
             AppendLog($"API key loaded from {apiKey.SourcePath}.");
             _controller = new TestSessionController(
                 _settings, apiKey, _sensors!,
-                new Prime95Runner(_settings.ToolsDirectory), new FurMarkRunner(_settings.GpuToolsDirectory));
+                new Prime95Runner(_settings.ToolsDirectory), new FurMarkRunner(_settings.GpuToolsDirectory),
+                new TM5Runner(_settings.RamToolsDirectory));
         }
         catch (Exception ex)
         {
@@ -224,6 +237,13 @@ public partial class MainWindow : Window
                 ? $"FurMark found at {furmarkPath}."
                 : $"FurMark NOT found at {furmarkPath} - drop the real FurMark 2 install there before " +
                   "starting a GPU test (see tools/FurMark_win64/README.md). Start will fail until then.");
+
+            var tm5Path = Path.Combine(_settings.RamToolsDirectory, "TM5.exe");
+            var tm5Found = File.Exists(tm5Path);
+            AppendLog(tm5Found
+                ? $"TM5 found at {tm5Path}."
+                : $"TM5 NOT found at {tm5Path} - drop the real TestMem5 install there before " +
+                  "starting a RAM test (see tools/TestMem5/README.md). Start will fail until then.");
         }
 
         AppendLog($"Server: {_settings.ServerBaseUrl}");
@@ -273,18 +293,32 @@ public partial class MainWindow : Window
     }
 
     // Null-guarded: CpuTestCheck's XAML-set IsChecked="True" fires this Checked handler during
-    // InitializeComponent() itself, before GpuTestCheck (declared later in the XAML) has been
-    // assigned yet - confirmed by reproducing it, a real NullReferenceException crash on every
-    // launch, not a hypothetical. Both are always non-null for any real user interaction, which
-    // only happens after InitializeComponent() has fully returned.
+    // InitializeComponent() itself, before GpuTestCheck/RamTestCheck (declared later in the XAML)
+    // have been assigned yet - confirmed by reproducing it, a real NullReferenceException crash on
+    // every launch, not a hypothetical. All three are always non-null for any real user
+    // interaction, which only happens after InitializeComponent() has fully returned.
+    //
+    // Three-way mutual exclusion. For CPU/GPU this is purely a client-side simplification (the
+    // server already supports running them together - CONTRACT.md §6/concurrency.js - just not
+    // attempted client-side yet). For RAM specifically it's not just a simplification: CONTRACT.md
+    // §6 requires RAM to never run concurrently with anything else, a real server-enforced rule -
+    // don't relax RamTestCheck's exclusion even if a future pass adds CPU+GPU "together" mode.
     private void CpuTestCheck_Checked(object sender, RoutedEventArgs e)
     {
         if (GpuTestCheck is not null) GpuTestCheck.IsChecked = false;
+        if (RamTestCheck is not null) RamTestCheck.IsChecked = false;
     }
 
     private void GpuTestCheck_Checked(object sender, RoutedEventArgs e)
     {
         if (CpuTestCheck is not null) CpuTestCheck.IsChecked = false;
+        if (RamTestCheck is not null) RamTestCheck.IsChecked = false;
+    }
+
+    private void RamTestCheck_Checked(object sender, RoutedEventArgs e)
+    {
+        if (CpuTestCheck is not null) CpuTestCheck.IsChecked = false;
+        if (GpuTestCheck is not null) GpuTestCheck.IsChecked = false;
     }
 
     private async void StartButton_Click(object sender, RoutedEventArgs e)
@@ -303,11 +337,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        // CpuTestCheck/GpuTestCheck are mutually exclusive (see the Checked handlers above), so at
-        // most one of these is true - this is just "was anything selected at all".
-        if (CpuTestCheck.IsChecked != true && GpuTestCheck.IsChecked != true)
+        // CpuTestCheck/GpuTestCheck/RamTestCheck are mutually exclusive (see the Checked handlers
+        // above), so at most one of these is true - this is just "was anything selected at all".
+        if (CpuTestCheck.IsChecked != true && GpuTestCheck.IsChecked != true && RamTestCheck.IsChecked != true)
         {
-            MessageBox.Show(this, "Select a test to run (CPU or GPU - those are the only two wired up this pass).",
+            MessageBox.Show(this, "Select a test to run (CPU, GPU, or RAM - those are the only three wired up this pass).",
                 "Nothing selected", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -343,9 +377,13 @@ public partial class MainWindow : Window
             {
                 await _controller.RunCpuTestSessionAsync(request, AppendLog, UpdateLiveReadout).ConfigureAwait(true);
             }
-            else
+            else if (GpuTestCheck.IsChecked == true)
             {
                 await _controller.RunGpuTestSessionAsync(request, AppendLog, UpdateGpuLiveReadout).ConfigureAwait(true);
+            }
+            else
+            {
+                await _controller.RunRamTestSessionAsync(request, AppendLog, UpdateRamLiveReadout).ConfigureAwait(true);
             }
         }
         catch (Exception ex)
@@ -381,6 +419,7 @@ public partial class MainWindow : Window
         RepairRadio.IsEnabled = !running;
         CpuTestCheck.IsEnabled = !running && _sensorsHealthy;
         GpuTestCheck.IsEnabled = !running && _sensorsHealthy;
+        RamTestCheck.IsEnabled = !running && _sensorsHealthy;
         RunningIndicator.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -452,6 +491,28 @@ public partial class MainWindow : Window
     private void UpdateGpuLiveReadout(GpuReadings reading)
     {
         void Update() => GpuStatusText.Text = SensorMonitor.FormatGpuLiveReadout(reading);
+
+        if (Dispatcher.CheckAccess())
+        {
+            Update();
+        }
+        else
+        {
+            Dispatcher.Invoke(Update);
+        }
+    }
+
+    /// <summary>RAM equivalent of <see cref="UpdateLiveReadout"/> - same threading contract
+    /// (RunRamTestSessionAsync's Log.txt poll loop calls this from a background thread). No
+    /// SensorMonitor.Format*LiveReadout equivalent exists for RAM (it's log-tailed text, not a
+    /// SensorReadings/GpuReadings record), so this formats inline.</summary>
+    private void UpdateRamLiveReadout(RamTestProgress progress)
+    {
+        void Update()
+        {
+            var mb = progress.TestedMb is double m ? $"{m:F0} MB" : "--";
+            RamStatusText.Text = $"Tested: {mb}   Errors: {progress.ErrorCount}";
+        }
 
         if (Dispatcher.CheckAccess())
         {

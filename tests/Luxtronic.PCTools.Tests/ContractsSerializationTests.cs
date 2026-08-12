@@ -220,6 +220,22 @@ public class ContractsSerializationTests
     }
 
     [Fact]
+    public void RamConfig_JsonPropertyNames_MatchContract()
+    {
+        var ramConfig = new RamConfig
+        {
+            Tool = "tm5",
+            ConfigProfile = "anta777-extreme",
+            DurationMinutes = 60,
+            MaxErrors = 0,
+        };
+
+        Assert.Equal(
+            new HashSet<string> { "tool", "config_profile", "duration_minutes", "max_errors" },
+            PropertyNames(ramConfig));
+    }
+
+    [Fact]
     public void ConcurrencyConfig_JsonPropertyNames_MatchContract()
     {
         var concurrencyConfig = new ConcurrencyConfig
@@ -240,19 +256,20 @@ public class ContractsSerializationTests
         {
             Cpu = new CpuConfig(),
             Gpu = new GpuConfig(),
+            Ram = new RamConfig(),
             Concurrency = new ConcurrencyConfig(),
         };
 
-        Assert.Equal(new HashSet<string> { "cpu", "gpu", "concurrency" }, PropertyNames(serverConfig));
+        Assert.Equal(new HashSet<string> { "cpu", "gpu", "ram", "concurrency" }, PropertyNames(serverConfig));
     }
 
     [Fact]
     public void ServerConfig_DeserializesFullContractExample_IgnoringUnmodeledSubtrees()
     {
-        // The full CONTRACT.md §3 example. ram/ssd subtrees are deliberately not modeled yet
-        // (comment in Contracts.cs explains why) - this confirms deserialization tolerates those
-        // unmodeled subtrees rather than throwing, and that the modeled cpu/gpu/concurrency
-        // subtrees all come through correctly.
+        // The full CONTRACT.md §3 example. ssd's subtree is deliberately not modeled yet (comment
+        // in Contracts.cs explains why) - this confirms deserialization tolerates that unmodeled
+        // subtree rather than throwing, and that the modeled cpu/gpu/ram/concurrency subtrees all
+        // come through correctly.
         const string json = """
         {
           "cpu": { "tool": "prime95", "mode": "blend", "duration_minutes": 60, "max_temp_c": 95 },
@@ -275,6 +292,12 @@ public class ContractsSerializationTests
         Assert.Equal("furmark", config.Gpu!.Tool);
         Assert.Equal(20, config.Gpu.DurationMinutes);
         Assert.Equal(90, config.Gpu.MaxTempC);
+
+        Assert.NotNull(config.Ram);
+        Assert.Equal("tm5", config.Ram!.Tool);
+        Assert.Equal("anta777-extreme", config.Ram.ConfigProfile);
+        Assert.Equal(60, config.Ram.DurationMinutes);
+        Assert.Equal(0, config.Ram.MaxErrors);
 
         Assert.NotNull(config.Concurrency);
         Assert.True(config.Concurrency!.CpuGpuTogetherAllowed);

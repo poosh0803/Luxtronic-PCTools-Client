@@ -33,6 +33,7 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="150"/>
@@ -49,7 +50,10 @@
                 <TextBlock Grid.Row="2" Grid.Column="1" x:Name="GpuStatusText" Text="(checking...)" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,0,4"/>
 
                 <TextBlock Grid.Row="3" Grid.Column="0" Text="Storage (S.M.A.R.T.):" FontWeight="SemiBold" VerticalAlignment="Top"/>
-                <TextBlock Grid.Row="3" Grid.Column="1" x:Name="SsdSummaryText" Text="(reading...)" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                <TextBlock Grid.Row="3" Grid.Column="1" x:Name="SsdSummaryText" Text="(reading...)" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,0,4"/>
+
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="RAM test status:" FontWeight="SemiBold" VerticalAlignment="Top"/>
+                <TextBlock Grid.Row="4" Grid.Column="1" x:Name="RamStatusText" Text="(idle)" TextWrapping="Wrap" VerticalAlignment="Center"/>
             </Grid>
         </GroupBox>
 
@@ -81,7 +85,10 @@
                     <CheckBox x:Name="GpuTestCheck" Content="GPU - FurMark Stress Test" FontWeight="SemiBold" Checked="GpuTestCheck_Checked"/>
                     <TextBlock x:Name="GpuDurationText" Text="(duration: checking...)" Foreground="Gray" Margin="8,0,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
-                <CheckBox Content="RAM - TestMem5 (coming soon)" IsEnabled="False" Foreground="Gray" Margin="0,0,0,6"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <CheckBox x:Name="RamTestCheck" Content="RAM - TestMem5 Stress Test" FontWeight="SemiBold" Checked="RamTestCheck_Checked"/>
+                    <TextBlock x:Name="RamDurationText" Text="(duration: checking...)" Foreground="Gray" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
                 <CheckBox Content="SSD - CrystalDiskMark (coming soon)" IsEnabled="False" Foreground="Gray"/>
             </StackPanel>
         </GroupBox>

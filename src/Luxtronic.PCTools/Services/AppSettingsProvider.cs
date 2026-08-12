@@ -16,6 +16,7 @@ public sealed class AppSettingsProvider
     public string ApiKeyFilePath { get; }
     public string ToolsDirectory { get; }
     public string GpuToolsDirectory { get; }
+    public string RamToolsDirectory { get; }
     public int TelemetrySampleIntervalMs { get; }
 
     private AppSettingsProvider(RawSettings raw, string baseDir)
@@ -24,6 +25,7 @@ public sealed class AppSettingsProvider
         ApiKeyFilePath = ResolvePath(baseDir, raw.ApiKeyFilePath);
         ToolsDirectory = ResolveToolsDirectory(baseDir, raw.ToolsDirectory);
         GpuToolsDirectory = ResolveToolsDirectory(baseDir, raw.GpuToolsDirectory);
+        RamToolsDirectory = ResolveToolsDirectory(baseDir, raw.RamToolsDirectory);
         TelemetrySampleIntervalMs = raw.TelemetrySampleIntervalMs > 0 ? raw.TelemetrySampleIntervalMs : 500;
     }
 
@@ -99,6 +101,9 @@ public sealed class AppSettingsProvider
 
         [JsonPropertyName("GpuToolsDirectory")]
         public string GpuToolsDirectory { get; set; } = "tools\\FurMark_win64";
+
+        [JsonPropertyName("RamToolsDirectory")]
+        public string RamToolsDirectory { get; set; } = "tools\\TestMem5";
 
         [JsonPropertyName("TelemetrySampleIntervalMs")]
         public int TelemetrySampleIntervalMs { get; set; } = 500;

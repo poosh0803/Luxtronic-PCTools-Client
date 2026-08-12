@@ -30,6 +30,11 @@ tools/hwi/*.exe
 tools/FurMark_win64/*
 !tools/FurMark_win64/README.md
 
+# Real TestMem5 (TM5) install - third-party, not redistributed via this repo. Same reasoning as
+# Prime95/FurMark above. Whole folder ignored except a placeholder README.
+tools/TestMem5/*
+!tools/TestMem5/README.md
+
 # Visual Studio / Rider
 .vs/
 .idea/

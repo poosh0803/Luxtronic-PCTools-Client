@@ -34,9 +34,9 @@ public static class StopReason
 // ---- GET /api/config (CONTRACT.md §3) ----------------------------------------------------
 
 /// <summary>
-/// Mirrors the server config JSON (CONTRACT.md §3). Only "cpu", "gpu", and "concurrency" are
-/// modeled since ram/ssd wrappers aren't built this pass; System.Text.Json ignores the unmodeled
-/// subtrees on deserialize, so fetching the full config document still works fine.
+/// Mirrors the server config JSON (CONTRACT.md §3). Only "cpu", "gpu", "ram", and "concurrency"
+/// are modeled since ssd's wrapper isn't built this pass; System.Text.Json ignores the unmodeled
+/// subtree on deserialize, so fetching the full config document still works fine.
 /// </summary>
 public sealed class ServerConfig
 {
@@ -45,6 +45,9 @@ public sealed class ServerConfig
 
     [JsonPropertyName("gpu")]
     public GpuConfig? Gpu { get; set; }
+
+    [JsonPropertyName("ram")]
+    public RamConfig? Ram { get; set; }
 
     [JsonPropertyName("concurrency")]
     public ConcurrencyConfig? Concurrency { get; set; }
@@ -78,6 +81,27 @@ public sealed class GpuConfig
 
     [JsonPropertyName("max_temp_c")]
     public double MaxTempC { get; set; } = 90;
+}
+
+/// <summary>
+/// config_profile is honored as-is only on DDR4 (or when platform/RAM-generation detection fails)
+/// - on a detected DDR5 system, RamProfileSelector overrides it with a platform-specific profile
+/// instead, since the shipped profile pack has no per-intensity DDR5 variants. See
+/// RamProfileSelector's class remarks and README's "Judgment calls against CONTRACT.md".
+/// </summary>
+public sealed class RamConfig
+{
+    [JsonPropertyName("tool")]
+    public string Tool { get; set; } = "tm5";
+
+    [JsonPropertyName("config_profile")]
+    public string ConfigProfile { get; set; } = "anta777-extreme";
+
+    [JsonPropertyName("duration_minutes")]
+    public int DurationMinutes { get; set; } = 60;
+
+    [JsonPropertyName("max_errors")]
+    public int MaxErrors { get; set; } = 0;
 }
 
 public sealed class ConcurrencyConfig

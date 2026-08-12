@@ -5,18 +5,21 @@ under test (new build QC or customer repair), technician-operated only. See
 [CLAUDE.md](CLAUDE.md), [PROJECT_PLAN.md](PROJECT_PLAN.md), and [CONTRACT.md](CONTRACT.md) for
 the full design - this README only covers building/running this client.
 
-## Current scope: CPU + GPU, standalone (not concurrent)
+## Current scope: CPU + GPU + RAM, standalone (not concurrent)
 
 Per `PROJECT_PLAN.md` §9, this started as one complete vertical slice for the CPU test only
 (Prime95), to prove the sensor-driver risk (see below) and the CONTRACT.md API/WebSocket shapes
-work end-to-end - GPU (FurMark 2) has since been wired up the same way. **CPU and GPU are
-mutually exclusive in this pass**, not CONTRACT.md §6's "together" mode (cpu+gpu running
-concurrently) - the server already fully supports that (`concurrency.js`), but the client doesn't
-attempt it yet; `TestSessionController.RunCpuTestSessionAsync`/`RunGpuTestSessionAsync` share a
-single `IsRunning` guard, and `MainWindow`'s CPU/GPU checkboxes uncheck each other. RAM/SSD
-checkboxes exist in the UI but are disabled/greyed ("coming soon") - not wired to anything.
+work end-to-end - GPU (FurMark 2) and RAM (TestMem5/TM5) have since been wired up the same way.
+**CPU, GPU, and RAM are mutually exclusive in this pass**, not CONTRACT.md §6's "together" mode
+(cpu+gpu running concurrently) - the server already fully supports that (`concurrency.js`), but
+the client doesn't attempt it yet; `TestSessionController.RunCpuTestSessionAsync`/
+`RunGpuTestSessionAsync`/`RunRamTestSessionAsync` share a single `IsRunning` guard, and
+`MainWindow`'s three checkboxes uncheck each other. For RAM specifically this isn't just a
+client-side simplification - CONTRACT.md §6 requires RAM to never run concurrently with anything
+else, a real server-enforced rule that the shared `IsRunning` guard happens to satisfy for free.
+SSD's checkbox exists in the UI but is disabled/greyed ("coming soon") - not wired to anything.
 
-Two exceptions to the "one test at a time" scope:
+Exceptions to the "one test at a time" scope:
 
 - `Services/SsdSmartReader.cs` (drive identity + S.M.A.R.T. health via LibreHardwareMonitorLib)
   is wired up and reports to the server - see
@@ -41,6 +44,22 @@ telemetry/complete-test-run/end-session flow, streaming `gpu_core_temp_c`, `gpu_
 `--artifact-scanner` flag (GPU rendering-corruption detection) toward `summary_stats.error_count`
 - see `FurMarkRunner`'s class remarks for what's ground-truthed there and what isn't (the artifact
 *detection* log format specifically hasn't been observed against a real detected artifact).
+
+`Services/TM5Runner.cs` wraps TestMem5/TM5 (`tools/TestMem5/` - see its own README, which also
+covers the reverse-engineered config-selection mechanism in detail) the same way, with two real
+differences from the CPU/GPU wrappers: (1) TM5 has no self-stopping duration flag like FurMark's
+`--max-time`, so `TM5Runner` enforces the configured duration externally and kills the process,
+the same shape `Prime95Runner` already uses; (2) `RamProfileSelector` auto-detects CPU vendor
+(Intel/AMD) and RAM generation (DDR4/DDR5) via WMI and overrides the server's `config_profile` on
+a detected DDR5 system - a deliberate deviation from CONTRACT.md's "config flows one direction"
+model, listed in "Judgment calls" below. RAM telemetry (`ram_tested_mb`, `ram_errors`) comes from
+polling TM5's `Log.txt`, not a `SensorMonitor` reading - **confirmed via real testing that TM5
+holds this file open exclusively for the whole run**, so the live readout gets one value near the
+start and then freezes there for the rest of the run (final `summary_stats` sent to the server are
+unaffected - that comes from a post-exit read, after TM5 releases the lock). See `TM5Runner`'s
+class remarks and `tools/TestMem5/README.md` for the full story and what's still unconfirmed (most
+notably: the external-duration-kill path itself has never been observed firing - every real test
+run was stopped manually first).
 
 The client never computes pass/fail and never shows results locally - that's server/dashboard
 only, by design (CONTRACT.md §7, PROJECT_PLAN.md §4).
@@ -324,6 +343,16 @@ whoever built the server:
    and clicking Start, the displayed duration could theoretically be stale for a few seconds/
    minutes until Start re-fetches - the *test itself* always uses the fresh value, so this is a
    display-only edge case, not a correctness one.
+10. **RAM's `config_profile` is overridden client-side on detected DDR5 systems.** CONTRACT.md
+    §3's `ram.config_profile` is a single server-wide value, same as CPU's `mode`/GPU's `tool` -
+    the server has no idea what CPU platform or RAM generation is actually in the PC under test.
+    The shipped TestMem5 profile pack only has one DDR5-tuned `.cfg` per CPU platform (no
+    per-intensity DDR5 variants the way DDR4 has Absolut/Extreme/Heavy/etc.), so
+    `RamProfileSelector` detects CPU vendor (Intel/AMD) and RAM generation (DDR4/DDR5) via WMI and
+    substitutes the matching DDR5 profile when one is detected, ignoring `config_profile`'s exact
+    value in that case only - on DDR4 (or when detection fails/is ambiguous), `config_profile` is
+    honored normally. This is a deliberate, one-off deviation from "config flows one direction,
+    client just executes" - flagged here rather than silently deviating.
 
 ## Repo layout
 
@@ -349,9 +378,15 @@ src/Luxtronic.PCTools/        WPF client app (net8.0-windows)
     FurMarkRunner.cs           FurMark 2 process wrapper - mirrors Prime95Runner, simpler in one
                                  respect (--max-time makes FurMark exit on its own, no external
                                  kill-after-duration needed like Prime95 requires)
-    TestSessionController.cs   Orchestrates one full CPU or GPU test session end-to-end (standalone,
-                                 not concurrent - see "Current scope" above), plus the per-drive SSD
-                                 SMART reporting described above
+    TM5Runner.cs               TestMem5/TM5 process wrapper - external duration enforcement like
+                                 Prime95Runner (no self-stopping flag like FurMark's --max-time);
+                                 config selection works by overwriting a hardcoded file path, not a
+                                 CLI flag - see its class remarks and tools/TestMem5/README.md
+    RamProfileSelector.cs      Picks which TM5 .cfg profile to run - WMI-detected DDR5 systems
+                                 override the server's config_profile (see "Judgment calls" above)
+    TestSessionController.cs   Orchestrates one full CPU, GPU, or RAM test session end-to-end
+                                 (standalone, not concurrent - see "Current scope" above), plus the
+                                 per-drive SSD SMART reporting described above
   MainWindow.xaml(.cs)         The one screen: session form (customer/type/notes), test checkboxes
                                  with the server-configured CPU duration shown next to the CPU one,
                                  machine identity panel (mobo serial, live CPU sensor readout, live
@@ -365,11 +400,17 @@ dev-menu.ps1                   PowerShell dev launcher/menu (build, test, launch
 dev-menu.bat                    Double-click wrapper for dev-menu.ps1 - bypasses the default
                                  PowerShell execution policy that otherwise blocks it outright
 tools/prime95/README.md        Placeholder - drop prime95.exe here manually (not auto-downloaded)
-tools/hwi/                     Placeholder - drop the real HWiNFO64.exe here manually (not
-                                 auto-downloaded, not committed - see "Known risk" above). Optional:
-                                 only needed on hardware where LHM's own CPU temp/clock reads fail
+tools/hwi/README.md            Drop the real HWiNFO64.exe here manually (not auto-downloaded,
+                                 the .exe itself not committed - see "Known risk" above). Sole
+                                 CPU/GPU sensor source now, not optional. HWiNFO64.INI *is*
+                                 committed (turnkey Shared Memory Support + other settings - see
+                                 tools/hwi/README.md for why each one is set)
 tools/FurMark_win64/README.md  Placeholder - drop the real FurMark 2 install here manually (not
                                  auto-downloaded, not committed)
+tools/TestMem5/README.md       Placeholder - drop the real TestMem5 install here manually (not
+                                 auto-downloaded, not committed). Covers the reverse-engineered
+                                 config-selection mechanism in detail - read before touching
+                                 TM5Runner/RamProfileSelector
 publish-assets/                Launch.ps1/Launch.bat - copied into publish/win-x64/ by dev-menu.ps1
                                  option 10 (not produced by dotnet publish itself). What a
                                  technician actually double-clicks on the target PC: runs a
