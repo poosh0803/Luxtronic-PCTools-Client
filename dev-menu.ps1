@@ -27,6 +27,7 @@ $HwiDir       = Join-Path $RepoRoot 'tools\hwi'
 $HwiExe       = Join-Path $HwiDir 'HWiNFO64.exe'
 $ToolsDir     = Join-Path $RepoRoot 'tools'
 $PublishDir   = Join-Path $RepoRoot 'publish\win-x64'
+$PublishAssetsDir = Join-Path $RepoRoot 'publish-assets'
 
 # CPU test duration is server-owned config (CONTRACT.md section 3 - "config flows one direction:
 # from server to client"), not a client setting. Assumes Luxtronic-PCTools-Server checked out as
@@ -61,7 +62,14 @@ function Test-HwInfoSharedMemoryActive {
     # class remarks - the mapping only gets created at HWiNFO startup, not retroactively).
     try {
         Add-Type -AssemblyName System.Core -ErrorAction SilentlyContinue
-        $mmf = [System.IO.MemoryMappedFiles.MemoryMappedFile]::OpenExisting('Global\HWiNFO_SENS_SM2')
+        # Explicit Read rights, not the default ReadWrite: OpenExisting's default request fails
+        # with "Access to the path is denied" on this mapping when the calling process isn't
+        # elevated, even though the mapping is genuinely readable and the app's own fallback
+        # (HwInfoSensorReader, which opens read-only) works fine unelevated - confirmed against a
+        # live HWiNFO64 process. Requesting ReadWrite here was a false negative, not a real
+        # unavailability signal.
+        $mmf = [System.IO.MemoryMappedFiles.MemoryMappedFile]::OpenExisting(
+            'Global\HWiNFO_SENS_SM2', [System.IO.MemoryMappedFiles.MemoryMappedFileRights]::Read)
         $mmf.Dispose()
         return $true
     } catch {
@@ -315,6 +323,19 @@ function Publish-SelfContained {
         Write-Host "HWiNFO64.exe not found at $HwiExe - published folder has no tools\hwi\ (optional - see README ""Known risk"")." -ForegroundColor DarkYellow
     }
 
+    # Launch.ps1/Launch.bat (publish-assets\) run a pre-flight check (exe/prime95/apikey/
+    # appsettings/server reachability/HWiNFO status) before starting the app, so a technician who
+    # double-clicks Launch.bat on the target PC gets a clear "here's what's missing" instead of the
+    # app either failing cryptically or - worse, the case that motivated adding this - coming up as
+    # a blank unresponsive window with no diagnostic shown at all. Not part of dotnet publish's
+    # output, so copied in explicitly, same as tools\prime95 and tools\hwi above.
+    if (Test-Path $PublishAssetsDir) {
+        Copy-Item -Path (Join-Path $PublishAssetsDir '*') -Destination $PublishDir -Recurse -Force
+        Write-Host 'Copied Launch.ps1/Launch.bat (pre-flight check + launcher) into the published folder.' -ForegroundColor Green
+    } else {
+        Write-Host "WARNING: publish-assets\ not found at $PublishAssetsDir - published folder has no Launch.bat." -ForegroundColor DarkYellow
+    }
+
     Write-Host ''
     Write-Host "Published to $PublishDir." -ForegroundColor Green
     Write-Host 'Before copying that folder to another PC, still needed there (not part of publish,' -ForegroundColor Yellow
@@ -325,8 +346,9 @@ function Publish-SelfContained {
     Write-Host '    Shared Memory Support enabled and restarted after enabling - copying the exe alone' -ForegroundColor Yellow
     Write-Host '    does not configure or start it (option 3 on this menu shows whether it''s active)' -ForegroundColor Yellow
     Write-Host ''
-    Write-Host 'Then copy the whole publish\win-x64 folder to the target PC and run' -ForegroundColor Green
-    Write-Host 'Luxtronic.PCTools.exe from there (elevated) - no .NET install needed on that PC.' -ForegroundColor Green
+    Write-Host 'Then copy the whole publish\win-x64 folder to the target PC and double-click' -ForegroundColor Green
+    Write-Host 'Launch.bat from there - it checks prerequisites, then launches the app (which' -ForegroundColor Green
+    Write-Host 'elevates itself via UAC) - no .NET install needed on that PC.' -ForegroundColor Green
 }
 
 function Open-ToolsFolder {

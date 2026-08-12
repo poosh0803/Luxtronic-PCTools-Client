@@ -77,6 +77,16 @@ Verified working: launched the published exe elevated on this dev machine and co
 main risk with single-file + native libraries is exactly that class of failure, so this wasn't
 assumed to work just because the publish command succeeded.
 
+On the target PC, run **`Launch.bat`** (also copied into the published folder by `dev-menu.ps1`
+option 10 - see `publish-assets/`), not the exe directly. It runs a pre-flight check (exe present,
+`prime95.exe` present, `apikey.txt` present, `appsettings.json` valid, server reachable, HWiNFO
+status) and reports exactly what's missing before launching, rather than the app either failing
+with a cryptic error or - the failure this was added to catch - coming up as a blank, permanently
+unresponsive window with no diagnostic at all (seen on a real technician test machine; traced to a
+LibreHardwareMonitorLib/WMI call able to hang instead of fail fast during startup, since fixed with
+a bounded timeout in `MainWindow.InitializeSensorsAsync`/`SensorMonitor.TryReadMotherboardSerialViaWmi`
+- Launch.bat's checks are a second line of defense, not a substitute for that fix).
+
 The regular `[Bb]in/`/`[Oo]bj/` build output stays git-ignored as before; `publish/` is too - this
 is a build artifact, produced on demand, never committed.
 
@@ -315,6 +325,13 @@ tools/prime95/README.md        Placeholder - drop prime95.exe here manually (not
 tools/hwi/                     Placeholder - drop the real HWiNFO64.exe here manually (not
                                  auto-downloaded, not committed - see "Known risk" above). Optional:
                                  only needed on hardware where LHM's own CPU temp/clock reads fail
+publish-assets/                Launch.ps1/Launch.bat - copied into publish/win-x64/ by dev-menu.ps1
+                                 option 10 (not produced by dotnet publish itself). What a
+                                 technician actually double-clicks on the target PC: runs a
+                                 pre-flight check (exe/prime95/apikey/appsettings/server
+                                 reachability/HWiNFO present) before launching the app, so missing
+                                 prerequisites show up as a clear checklist instead of the app
+                                 failing cryptically or hanging with no explanation
 publish/win-x64/               Self-contained single-file build output (dev-menu.ps1 option 10) -
                                  git-ignored, produced on demand, this is what gets copied to a
                                  technician PC that has no .NET installed
