@@ -23,6 +23,9 @@ $ExePath      = Join-Path $ExeDir 'Luxtronic.PCTools.exe'
 $ApiKeyPath   = Join-Path $ExeDir 'apikey.txt'
 $Prime95Dir   = Join-Path $RepoRoot 'tools\prime95'
 $Prime95Exe   = Join-Path $Prime95Dir 'prime95.exe'
+$HwiDir       = Join-Path $RepoRoot 'tools\hwi'
+$HwiExe       = Join-Path $HwiDir 'HWiNFO64.exe'
+$ToolsDir     = Join-Path $RepoRoot 'tools'
 $PublishDir   = Join-Path $RepoRoot 'publish\win-x64'
 
 # CPU test duration is server-owned config (CONTRACT.md section 3 - "config flows one direction:
@@ -47,6 +50,23 @@ function Test-DotnetSdk {
     }
     if (-not $sdks) { return $false }
     return ($sdks | Where-Object { $_ -match '^8\.0\.' }) -ne $null
+}
+
+function Test-HwInfoSharedMemoryActive {
+    # Directly checks whether HWiNFO's shared-memory block exists right now (Global\HWiNFO_SENS_SM2),
+    # rather than just whether HWiNFO64.exe is present on disk - this is the only thing that
+    # actually answers "would the CPU temp/clock fallback work if invoked right now", since the
+    # exe can be present but not running, running without Shared Memory Support enabled, or
+    # running with that setting enabled but not yet restarted since (see HwInfoSensorReader.cs
+    # class remarks - the mapping only gets created at HWiNFO startup, not retroactively).
+    try {
+        Add-Type -AssemblyName System.Core -ErrorAction SilentlyContinue
+        $mmf = [System.IO.MemoryMappedFiles.MemoryMappedFile]::OpenExisting('Global\HWiNFO_SENS_SM2')
+        $mmf.Dispose()
+        return $true
+    } catch {
+        return $false
+    }
 }
 
 function Get-CpuDurationMinutes {
@@ -80,6 +100,22 @@ function Show-Status {
     } else {
         Write-Host "  [FAIL] prime95.exe missing - drop the real binary into $Prime95Dir" -ForegroundColor Red
         Write-Host '         (see tools\prime95\README.md - not auto-downloaded)' -ForegroundColor DarkYellow
+    }
+
+    # HWiNFO is optional (CPU temp/clock fallback for hardware where LHM's own reads fail - see
+    # README "Known risk") - "not found"/"not active" are yellow, not red, unlike prime95 which is
+    # required for the CPU test to run at all.
+    if (Test-Path $HwiExe) {
+        Write-Host "  [OK]   HWiNFO64.exe found: $HwiExe" -ForegroundColor Green
+    } else {
+        Write-Host "  [--]   HWiNFO64.exe not found at $HwiDir (optional - only needed as a CPU" -ForegroundColor DarkYellow
+        Write-Host '         temp/clock fallback on hardware where LHM''s own reads fail)' -ForegroundColor DarkYellow
+    }
+    if (Test-HwInfoSharedMemoryActive) {
+        Write-Host '  [OK]   HWiNFO shared memory is active right now - fallback would work if LHM''s own CPU temp/clock reads failed' -ForegroundColor Green
+    } else {
+        Write-Host '  [--]   HWiNFO shared memory not active - fallback unavailable until HWiNFO is running with' -ForegroundColor DarkYellow
+        Write-Host '         Shared Memory Support enabled (and restarted after enabling it - see HwInfoSensorReader.cs)' -ForegroundColor DarkYellow
     }
 
     if (Test-Path $ApiKeyPath) {
@@ -265,20 +301,38 @@ function Publish-SelfContained {
         Write-Host "Drop prime95.exe into $PublishDir\tools\prime95\ before copying to another PC." -ForegroundColor DarkYellow
     }
 
+    # HWiNFO is a standalone exe the technician launches separately (not something
+    # Luxtronic.PCTools.exe resolves a path to itself, unlike prime95.exe) - still copied into the
+    # published folder for convenience so the whole CPU temp/clock fallback setup travels with one
+    # folder copy, same reasoning as prime95. Optional: only needed on hardware where LHM's own
+    # reads fail, so its absence is a warning, not an error.
+    if (Test-Path $HwiExe) {
+        $publishHwiDir = Join-Path $PublishDir 'tools\hwi'
+        New-Item -ItemType Directory -Force -Path $publishHwiDir | Out-Null
+        Copy-Item -Path (Join-Path $HwiDir '*') -Destination $publishHwiDir -Recurse -Force
+        Write-Host "Copied tools\hwi\ (including HWiNFO64.exe) into the published folder." -ForegroundColor Green
+    } else {
+        Write-Host "HWiNFO64.exe not found at $HwiExe - published folder has no tools\hwi\ (optional - see README ""Known risk"")." -ForegroundColor DarkYellow
+    }
+
     Write-Host ''
     Write-Host "Published to $PublishDir." -ForegroundColor Green
     Write-Host 'Before copying that folder to another PC, still needed there (not part of publish,' -ForegroundColor Yellow
     Write-Host 'same as every other build - see README "One-time local setup"):' -ForegroundColor Yellow
     Write-Host "  - apikey.txt - THAT technician's own key, never copy one technician's key folder-to-folder" -ForegroundColor Yellow
     Write-Host '  - appsettings.json ServerBaseUrl - already copied, but double-check it points at the real server' -ForegroundColor Yellow
+    Write-Host '  - If HWiNFO was bundled: it still needs launching separately on the target PC, with' -ForegroundColor Yellow
+    Write-Host '    Shared Memory Support enabled and restarted after enabling - copying the exe alone' -ForegroundColor Yellow
+    Write-Host '    does not configure or start it (option 3 on this menu shows whether it''s active)' -ForegroundColor Yellow
     Write-Host ''
     Write-Host 'Then copy the whole publish\win-x64 folder to the target PC and run' -ForegroundColor Green
     Write-Host 'Luxtronic.PCTools.exe from there (elevated) - no .NET install needed on that PC.' -ForegroundColor Green
 }
 
-function Open-Prime95Folder {
+function Open-ToolsFolder {
     New-Item -ItemType Directory -Force -Path $Prime95Dir | Out-Null
-    Start-Process explorer.exe $Prime95Dir
+    New-Item -ItemType Directory -Force -Path $HwiDir | Out-Null
+    Start-Process explorer.exe $ToolsDir
 }
 
 $running = $true
@@ -295,7 +349,7 @@ while ($running) {
     Write-Host '  6) Set/update technician API key'
     Write-Host '  7) Set server URL'
     Write-Host '  8) Set CPU test duration (server config)'
-    Write-Host '  9) Open tools\prime95 folder'
+    Write-Host '  9) Open tools folder (prime95, hwi)'
     Write-Host '  10) Publish self-contained build (for PCs without .NET installed)'
     Write-Host '  11) Exit'
     Write-Host ''
@@ -312,7 +366,7 @@ while ($running) {
         '6' { Set-ApiKey }
         '7' { Set-ServerUrl }
         '8' { Set-CpuTestDuration }
-        '9' { Open-Prime95Folder }
+        '9' { Open-ToolsFolder }
         '10' { Publish-SelfContained }
         '11' { $running = $false }
         default { Write-Host 'Not a valid choice.' -ForegroundColor Red }
