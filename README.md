@@ -179,17 +179,36 @@ even when the app was launched *unelevated* (via `dotnet exec`, which bypasses t
 elevation prompt - see "Run (dev)" above).
 
 **Confirmed materializing on real technician PCs/laptops**: multiple other machines showed CPU
-temp/clock/fan all null while GPU sensors (when a GPU was present) worked fine - consistent with
-Secure Boot/HVCI blocking WinRing0's MSR access specifically while GPU vendor APIs (which don't
-need WinRing0) keep working. This uncovered a real bug the field testing is credited for finding:
-the health check's "is temperature actually readable" test was scoped to *any* hardware's
-temperature sensor, not specifically the CPU's - so once GPU/Storage sensor support was added, a
-working GPU or SSD temperature sensor silently masked a completely dead CPU temperature path,
-reporting a false green "Sensors OK" while CPU temp/clock/fan stayed null the whole time. Fixed
-by scoping the check to CPU hardware only (see `SensorMonitor.Initialize()`'s remarks on
-`anyTemperatureValueReadable`) - the WARNING message now also names Secure Boot/HVCI explicitly
-as a likely cause, not just "another monitoring app has the driver open," since that's what field
-data actually points to as the dominant real-world cause.
+temp/clock/fan all null while GPU sensors (when a GPU was present) worked fine. This uncovered two
+things, one at a time:
+
+1. **A real bug in the health check itself.** The "is temperature actually readable" test was
+   scoped to *any* hardware's temperature sensor, not specifically the CPU's - so once GPU/Storage
+   sensor support was added, a working GPU or SSD temperature sensor silently masked a completely
+   dead CPU temperature path, reporting a false green "Sensors OK" while CPU temp/clock/fan stayed
+   null the whole time. Fixed by scoping the check to CPU hardware only (see
+   `SensorMonitor.Initialize()`'s remarks on `anyTemperatureValueReadable`).
+2. **HVCI turned out not to be the actual cause.** The health-check message initially named Secure
+   Boot/HVCI as the likely explanation, on the reasoning that GPU vendor APIs don't need WinRing0
+   the way CPU MSR reads do. Further field testing disproved that: on one affected machine, Memory
+   Integrity was confirmed ON, no other monitoring app was running, and CPU temp *still* came back
+   null via this app - but HWiNFO64, launched separately on the very same machine, read CPU temp
+   correctly. If HVCI were blocking WinRing0-style drivers generically, HWiNFO's own kernel driver
+   would have failed too. It didn't, which points at a LibreHardwareMonitorLib-specific limitation
+   for this CPU/board combination instead - matching an open, unresolved upstream GitHub issue for
+   the same CPU family, not an HVCI policy question a technician can toggle their way out of.
+
+**Fix**: `HwInfoSensorReader.cs` reads CPU temperature/clock from HWiNFO64's Shared Memory
+interface as a fallback, used only when LibreHardwareMonitorLib's own values come back null (see
+`SensorMonitor.ReadCpu()`/`Initialize()`). Requires HWiNFO64 running in the background with
+Settings > "Shared Memory Support" enabled (GUI-only toggle, restart HWiNFO after enabling it -
+see the class remarks for why) - `tools/hwi/` is where a technician/developer drops the real
+`HWiNFO64.exe`, same drop-in pattern as `tools/prime95/`. Ground-truthed against a real 342-reading
+HWiNFO shared-memory dump on the same Intel i5-11400F used throughout this README - see
+`HwInfoSensorReaderTests.RealCpuReadings` for the exact fixture. Only validated against this one
+Intel CPU/HWiNFO version - AMD and other HWiNFO versions may use different label text for the same
+metrics, worth re-confirming if CPU temp is still null on an affected AMD machine even with HWiNFO
+installed and configured.
 
 ## Judgment calls made against CONTRACT.md (flag for reconciliation with the server side)
 
@@ -275,6 +294,8 @@ src/Luxtronic.PCTools/        WPF client app (net8.0-windows)
     SsdSmartReader.cs          Storage/SMART attribute extraction + summary_stats/tool_output_raw
                                  builders, called by SensorMonitor.ReadSsds() and
                                  TestSessionController.SubmitSsdSmartDataAsync() - see "Current scope" above
+    HwInfoSensorReader.cs      HWiNFO64 shared-memory fallback for CPU temp/clock when LHM's own
+                                 MSR reads don't work on the hardware - see "Known risk" above
     Prime95Runner.cs           Prime95 process wrapper
     TestSessionController.cs   Orchestrates one full CPU test session end-to-end, plus the
                                  per-drive SSD SMART reporting described above
@@ -291,6 +312,9 @@ dev-menu.ps1                   PowerShell dev launcher/menu (build, test, launch
 dev-menu.bat                    Double-click wrapper for dev-menu.ps1 - bypasses the default
                                  PowerShell execution policy that otherwise blocks it outright
 tools/prime95/README.md        Placeholder - drop prime95.exe here manually (not auto-downloaded)
+tools/hwi/                     Placeholder - drop the real HWiNFO64.exe here manually (not
+                                 auto-downloaded, not committed - see "Known risk" above). Optional:
+                                 only needed on hardware where LHM's own CPU temp/clock reads fail
 publish/win-x64/               Self-contained single-file build output (dev-menu.ps1 option 10) -
                                  git-ignored, produced on demand, this is what gets copied to a
                                  technician PC that has no .NET installed

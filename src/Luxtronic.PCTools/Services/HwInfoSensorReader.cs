@@ -28,13 +28,18 @@ namespace Luxtronic.PCTools.Services;
 /// treat that as "no fallback available right now", not an error condition, since this is
 /// optional infrastructure the technician may or may not have running.
 ///
-/// IMPORTANT: the label-matching in <see cref="ExtractCpuTempAndClock"/> is NOT yet
-/// ground-truthed against a real HWiNFO shared-memory dump - only the Hwinfo.SharedMemory.Net
-/// library's own field shapes (SensorReading/SensorType, confirmed against the pinned 2.1.0
-/// package source) are confirmed. Re-verify the actual label strings HWiNFO uses for CPU
-/// package temperature and per-core clocks against a real dump before relying on this for a
-/// technician's pass/fail-adjacent decision - see the class history for why this shipped without
-/// that step (HWiNFO wasn't available on hand to re-test against at the time).
+/// Label-matching in <see cref="ExtractCpuTempAndClock"/> is ground-truthed against a real
+/// HWiNFO64 shared-memory dump (Intel Core i5-11400F, 342 total readings) - see
+/// HwInfoSensorReaderTests.RealCpuReadings for the exact fixture. Two things confirmed there
+/// worth knowing: HWiNFO splits CPU sensors across multiple sub-groups with distinct
+/// GroupLabelOrig values ("CPU [#0]: &lt;model&gt;" for clocks/voltages, "...: DTS" and
+/// "...: Enhanced" for temperatures) - the group filter below matches on "CPU" as a substring
+/// specifically so it catches all of them, not just the main group; and real dumps include twelve
+/// "Core N T0/T1 Effective Clock" per-thread readings (SMT-related, much lower than the real
+/// target clock) that the "Effective" exclusion exists specifically to filter out - not a
+/// hypothetical case, an actual fixture in the real data. Only validated against this one
+/// Intel CPU/HWiNFO version combination - AMD and older/newer HWiNFO versions may use different
+/// label text for the same metrics.
 /// </summary>
 public sealed class HwInfoSensorReader : IDisposable
 {
@@ -66,8 +71,8 @@ public sealed class HwInfoSensorReader : IDisposable
 
     /// <summary>
     /// Pure extraction logic, split out from <see cref="ReadCpuTemperatureAndClock"/> so it's
-    /// unit testable without a real HWiNFO instance. See class remarks - NOT yet ground-truthed
-    /// against real HWiNFO label strings.
+    /// unit testable without a real HWiNFO instance. See class remarks - ground-truthed against a
+    /// real HWiNFO shared-memory dump.
     /// </summary>
     internal static (double? TempC, double? ClockMhz) ExtractCpuTempAndClock(IReadOnlyList<SensorReading> readings)
     {

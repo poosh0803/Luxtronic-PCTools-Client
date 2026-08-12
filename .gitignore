@@ -19,6 +19,10 @@ tools/prime95/local.txt
 tools/prime95/results.txt
 !tools/prime95/README.md
 
+# Real HWiNFO64 binary - third-party, not redistributed via this repo (optional CPU temp/clock
+# fallback for hardware where LHM's own reads don't work - see README "Known risk")
+tools/hwi/*.exe
+
 # Visual Studio / Rider
 .vs/
 .idea/
