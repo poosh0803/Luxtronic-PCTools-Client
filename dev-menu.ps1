@@ -295,6 +295,21 @@ function Publish-SelfContained {
         return
     }
 
+    # appsettings.json is marked <None Update> with CopyToOutputDirectory in the csproj, which
+    # normally handles this - but that only fires when MSBuild's incremental build decides the
+    # copy step needs to (re)run. Confirmed reproducible: delete just appsettings.json from an
+    # existing $PublishDir and republish with no other change (bin/obj caches intact) - dotnet
+    # reports "up-to-date for restore", skips the copy entirely, and the file stays missing. Copied
+    # explicitly here instead, same reasoning as tools\prime95/tools\hwi/publish-assets below - not
+    # relying on MSBuild's content pipeline for a file that must reliably end up in the publish
+    # folder every time, regardless of what the incremental build cache thinks already happened.
+    if (Test-Path $AppSettings) {
+        Copy-Item -Path $AppSettings -Destination $PublishDir -Force
+        Write-Host 'Copied appsettings.json into the published folder.' -ForegroundColor Green
+    } else {
+        Write-Host "WARNING: appsettings.json not found at $AppSettings - published folder has none." -ForegroundColor Red
+    }
+
     # tools\prime95 is resolved relative to the exe first, then by walking up parent directories
     # as a dev-mode convenience (see README) - that walk-up only finds anything because this repo
     # checkout is nearby. A published folder copied to another PC has no such parent repo, so
