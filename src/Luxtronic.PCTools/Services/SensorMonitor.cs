@@ -440,12 +440,20 @@ public sealed class SensorMonitor : IDisposable
     /// as-is (still logged by the caller) rather than nulled out, since we need *something* to
     /// key sessions on; see README for the open question this raises about collisions across
     /// such boards.
+    ///
+    /// Explicit query timeout (<see cref="EnumerationOptions.Timeout"/>) - a bare
+    /// ManagementObjectSearcher.Get() has no default timeout and is known to hang indefinitely
+    /// rather than throw when the WMI repository/service is in a bad state on a given machine
+    /// (seen on a real technician test machine: this call, invoked synchronously during app
+    /// startup, was the leading suspect for a published build showing a permanently unresponsive
+    /// window). This bounds it so the caller gets "no serial" back instead of hanging forever.
     /// </summary>
     private static string? TryReadMotherboardSerialViaWmi()
     {
         try
         {
             using var searcher = new ManagementObjectSearcher("SELECT SerialNumber FROM Win32_BaseBoard");
+            searcher.Options.Timeout = TimeSpan.FromSeconds(10);
             foreach (ManagementObject obj in searcher.Get())
             {
                 if (obj["SerialNumber"] is string serial && !string.IsNullOrWhiteSpace(serial))
@@ -456,9 +464,10 @@ public sealed class SensorMonitor : IDisposable
         }
         catch
         {
-            // WMI can be unavailable/blocked in locked-down environments - treated as "no
-            // serial", surfaced to the caller as null so the UI can show an explicit warning
-            // rather than silently sending an empty string as the PC's primary key.
+            // WMI can be unavailable/blocked in locked-down environments, or the bounded query
+            // above can time out - both treated as "no serial", surfaced to the caller as null so
+            // the UI can show an explicit warning rather than silently sending an empty string as
+            // the PC's primary key.
         }
 
         return null;

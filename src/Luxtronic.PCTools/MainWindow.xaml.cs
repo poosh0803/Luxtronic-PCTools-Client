@@ -34,8 +34,11 @@ public partial class MainWindow : Window
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        InitializeSensors();
-        InitializeSsdSummary();
+        var sensorsReady = await InitializeSensorsAsync().ConfigureAwait(true);
+        if (sensorsReady)
+        {
+            InitializeSsdSummary();
+        }
         await InitializeCpuDurationAsync().ConfigureAwait(true);
     }
 
@@ -68,54 +71,116 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>How long <see cref="InitializeSensorsAsync"/> waits for LibreHardwareMonitorLib's
+    /// native driver open (and the WMI motherboard-serial lookup nested inside it) before giving up
+    /// on blocking the UI thread and reporting a hang instead. Both are known to be able to stall
+    /// indefinitely on certain hardware/WMI-repository states rather than fail fast - see remarks
+    /// below.</summary>
+    private static readonly TimeSpan SensorInitTimeout = TimeSpan.FromSeconds(20);
+
     /// <summary>
     /// Runs LibreHardwareMonitorLib init up front (on app open, not deferred to Start) so the
     /// technician sees the WinRing0/driver risk called out in PROJECT_PLAN.md §8 immediately,
     /// rather than 60 minutes into a test run.
+    ///
+    /// <see cref="SensorMonitor.Initialize"/> (native driver open, plus a synchronous WMI query for
+    /// the motherboard serial) is run on a background thread with a bounded wait, not awaited
+    /// directly on the UI thread - both of those calls are known to be able to hang rather than
+    /// fail fast on some real machines (a published build was seen showing a permanently blank/
+    /// unresponsive window on a technician's test machine; Task Manager reported it as "Not
+    /// Responding" even though the app was launched elevated, ruling out a UAC-prompt wait). If the
+    /// call doesn't return within <see cref="SensorInitTimeout"/>, this reports a clear "may be
+    /// hung" warning and lets the UI stay responsive instead of freezing forever; the background
+    /// task is left running (fire-and-forget) in case it eventually resolves, since there's no safe
+    /// way to cancel a blocking native/WMI call already in progress.
+    ///
+    /// Returns whether sensors are usable so <see cref="MainWindow_Loaded"/> can skip
+    /// <see cref="InitializeSsdSummary"/> when initialization is still in flight - calling
+    /// <see cref="SensorMonitor.ReadSsds"/> while <see cref="SensorMonitor.Initialize"/> is still
+    /// running on another thread would be a concurrent-use hazard on the shared Computer/visitor
+    /// (see SensorMonitor's class remarks on why there's only ever one Computer instance).
     /// </summary>
-    private void InitializeSensors()
+    private async Task<bool> InitializeSensorsAsync()
     {
-        try
-        {
-            _sensors = new SensorMonitor();
-            var result = _sensors.Initialize();
+        _sensors = new SensorMonitor();
+        SensorStatusText.Text = "Initializing sensors...";
 
-            _sensorsHealthy = result.DriverLikelyLoaded;
-            _moboSerial = result.MotherboardSerial;
+        var initTask = Task.Run(() => _sensors.Initialize());
+        var completed = await Task.WhenAny(initTask, Task.Delay(SensorInitTimeout)).ConfigureAwait(true);
 
-            MoboSerialText.Text = _moboSerial ?? "(not available - WMI returned no serial)";
-            SensorStatusText.Text = result.Message;
-            SensorStatusText.Foreground = _sensorsHealthy ? Brushes.ForestGreen : Brushes.Firebrick;
-
-            AppendLog(result.Message);
-            if (_moboSerial is null)
-            {
-                AppendLog("WARNING: no motherboard serial available via WMI (Win32_BaseBoard). " +
-                          "This is the PC's primary identity per CONTRACT.md - sessions cannot be created without it.");
-            }
-
-            if (!_sensorsHealthy)
-            {
-                CpuTestCheck.IsEnabled = false;
-                CpuTestCheck.IsChecked = false;
-                StartButton.IsEnabled = false;
-                AppendLog("CPU test disabled: sensors are not reporting data. Fix the driver/elevation issue above and restart the app.");
-            }
-            else
-            {
-                StartIdleSensorTimer();
-            }
-        }
-        catch (Exception ex)
+        if (completed != initTask)
         {
             _sensorsHealthy = false;
-            SensorStatusText.Text = $"Sensor initialization threw an exception: {ex.Message}";
+            SensorStatusText.Text =
+                $"WARNING: Sensor initialization has not returned after {SensorInitTimeout.TotalSeconds:F0}s " +
+                "and may be hung (seen in the field - LibreHardwareMonitorLib's native driver open or its WMI " +
+                "motherboard-serial lookup can stall indefinitely on some hardware/WMI states instead of " +
+                "failing fast). The app stays usable, but the CPU test is disabled until this resolves - " +
+                "closing and relaunching (possibly after a machine restart, if WMI is the culprit) is the " +
+                "most reliable fix.";
             SensorStatusText.Foreground = Brushes.Firebrick;
-            MoboSerialText.Text = "(unavailable)";
-            AppendLog($"ERROR initializing sensors: {ex}");
+            MoboSerialText.Text = "(unavailable - sensor initialization has not completed)";
+            AppendLog(SensorStatusText.Text);
             CpuTestCheck.IsEnabled = false;
             CpuTestCheck.IsChecked = false;
             StartButton.IsEnabled = false;
+
+            // Best-effort: if the stuck call eventually does return, at least log it instead of
+            // silently discarding the result - but don't touch UI state beyond that, since the
+            // technician has already been told a restart is the reliable path.
+            _ = initTask.ContinueWith(t =>
+            {
+                var message = t.IsFaulted
+                    ? $"Delayed sensor initialization eventually failed: {t.Exception!.GetBaseException().Message}"
+                    : $"Delayed sensor initialization eventually completed: {t.Result.Message}";
+                Dispatcher.Invoke(() => AppendLog(
+                    $"NOTE: {message} (after the {SensorInitTimeout.TotalSeconds:F0}s hang warning above - " +
+                    "restart the app to pick this up cleanly rather than relying on this late result)."));
+            }, TaskScheduler.Default);
+        }
+        else
+        {
+            try
+            {
+                var result = await initTask.ConfigureAwait(true);
+
+                _sensorsHealthy = result.DriverLikelyLoaded;
+                _moboSerial = result.MotherboardSerial;
+
+                MoboSerialText.Text = _moboSerial ?? "(not available - WMI returned no serial)";
+                SensorStatusText.Text = result.Message;
+                SensorStatusText.Foreground = _sensorsHealthy ? Brushes.ForestGreen : Brushes.Firebrick;
+
+                AppendLog(result.Message);
+                if (_moboSerial is null)
+                {
+                    AppendLog("WARNING: no motherboard serial available via WMI (Win32_BaseBoard). " +
+                              "This is the PC's primary identity per CONTRACT.md - sessions cannot be created without it.");
+                }
+
+                if (!_sensorsHealthy)
+                {
+                    CpuTestCheck.IsEnabled = false;
+                    CpuTestCheck.IsChecked = false;
+                    StartButton.IsEnabled = false;
+                    AppendLog("CPU test disabled: sensors are not reporting data. Fix the driver/elevation issue above and restart the app.");
+                }
+                else
+                {
+                    StartIdleSensorTimer();
+                }
+            }
+            catch (Exception ex)
+            {
+                _sensorsHealthy = false;
+                SensorStatusText.Text = $"Sensor initialization threw an exception: {ex.Message}";
+                SensorStatusText.Foreground = Brushes.Firebrick;
+                MoboSerialText.Text = "(unavailable)";
+                AppendLog($"ERROR initializing sensors: {ex}");
+                CpuTestCheck.IsEnabled = false;
+                CpuTestCheck.IsChecked = false;
+                StartButton.IsEnabled = false;
+            }
         }
 
         try
@@ -141,6 +206,8 @@ public partial class MainWindow : Window
         }
 
         AppendLog($"Server: {_settings.ServerBaseUrl}");
+
+        return completed == initTask;
     }
 
     /// <summary>
