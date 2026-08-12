@@ -22,7 +22,7 @@ public sealed class AppSettingsProvider
         ServerBaseUrl = raw.ServerBaseUrl.TrimEnd('/');
         ApiKeyFilePath = ResolvePath(baseDir, raw.ApiKeyFilePath);
         ToolsDirectory = ResolveToolsDirectory(baseDir, raw.ToolsDirectory);
-        TelemetrySampleIntervalMs = raw.TelemetrySampleIntervalMs > 0 ? raw.TelemetrySampleIntervalMs : 1000;
+        TelemetrySampleIntervalMs = raw.TelemetrySampleIntervalMs > 0 ? raw.TelemetrySampleIntervalMs : 500;
     }
 
     public static AppSettingsProvider Load()
@@ -95,6 +95,6 @@ public sealed class AppSettingsProvider
         public string ToolsDirectory { get; set; } = "tools\\prime95";
 
         [JsonPropertyName("TelemetrySampleIntervalMs")]
-        public int TelemetrySampleIntervalMs { get; set; } = 1000;
+        public int TelemetrySampleIntervalMs { get; set; } = 500;
     }
 }
