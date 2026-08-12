@@ -57,6 +57,7 @@ public sealed class SensorMonitor : IDisposable
 {
     private readonly Computer _computer;
     private readonly UpdateVisitor _visitor = new();
+    private readonly HwInfoSensorReader _hwInfoFallback = new();
     private bool _initialized;
 
     public SensorMonitor()
@@ -108,9 +109,29 @@ public sealed class SensorMonitor : IDisposable
         var anyTemperatureValueReadable = cpuHardware is not null &&
             EnumerateSensorsRecursive(cpuHardware).Any(s => s.SensorType == SensorType.Temperature && s.Value.HasValue);
 
+        // LHM can't read CPU temp on some real hardware even with the driver otherwise loaded
+        // (confirmed in the field, HVCI on, no other monitoring app running - see
+        // HwInfoSensorReader remarks for the full story). Only attempted when LHM's own check
+        // already failed, since it's an extra shared-memory round trip we don't need when LHM
+        // already works (the common case).
+        var usingHwInfoFallback = false;
+        if (!anyTemperatureValueReadable)
+        {
+            var (fallbackTemp, _) = _hwInfoFallback.ReadCpuTemperatureAndClock();
+            usingHwInfoFallback = fallbackTemp.HasValue;
+        }
+
         var moboSerial = TryReadMotherboardSerialViaWmi();
 
-        var (driverLikelyLoaded, message) = EvaluateSensorHealth(totalSensors, cpuSensors, anyTemperatureValueReadable);
+        var (driverLikelyLoaded, message) = EvaluateSensorHealth(
+            totalSensors, cpuSensors, anyTemperatureValueReadable || usingHwInfoFallback);
+
+        if (usingHwInfoFallback)
+        {
+            message += " (CPU temperature/clock via HWiNFO fallback - LibreHardwareMonitorLib's " +
+                       "own reads aren't working on this hardware, a known limitation on some " +
+                       "CPU/board combinations.)";
+        }
 
         return new SensorInitResult
         {
@@ -241,7 +262,20 @@ public sealed class SensorMonitor : IDisposable
             fanRpm = fallbackFan?.Value;
         }
 
-        return new SensorReadings(packageTemp, load, fanRpm, AverageClockMhz(coreClocks));
+        var frequencyMhz = AverageClockMhz(coreClocks);
+
+        // Same HWiNFO fallback as Initialize(), for the ongoing poll used for telemetry/live
+        // display during an actual test run - only invoked when LHM's own value is missing, per
+        // field/reading, so a partially-working LHM (e.g. clock reads but temp doesn't) only asks
+        // HWiNFO for the piece it's actually missing.
+        if (packageTemp is null || frequencyMhz is null)
+        {
+            var (fallbackTemp, fallbackClock) = _hwInfoFallback.ReadCpuTemperatureAndClock();
+            packageTemp ??= fallbackTemp;
+            frequencyMhz ??= fallbackClock;
+        }
+
+        return new SensorReadings(packageTemp, load, fanRpm, frequencyMhz);
     }
 
     /// <summary>Point-in-time SMART read for every drive LHM can see, through the same shared
@@ -436,6 +470,7 @@ public sealed class SensorMonitor : IDisposable
         {
             _computer.Close();
         }
+        _hwInfoFallback.Dispose();
     }
 
     private sealed class UpdateVisitor : IVisitor

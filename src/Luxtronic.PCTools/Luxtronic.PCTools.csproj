@@ -19,6 +19,11 @@
   <ItemGroup>
     <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.6" />
     <PackageReference Include="System.Management" Version="10.0.10" />
+    <!-- Fallback CPU temp/clock source for hardware where LHM's WinRing0-based MSR reads don't
+         work (confirmed on real technician PCs - see HwInfoSensorReader.cs remarks). Pinned to
+         2.1.0, not the latest (3.0.0 targets net10.0-windows only, incompatible with this net8.0
+         project) - 2.1.0 multi-targets net6.0-windows;net8.0-windows. -->
+    <PackageReference Include="Hwinfo.SharedMemory.Net" Version="2.1.0" />
   </ItemGroup>
 
   <ItemGroup>
