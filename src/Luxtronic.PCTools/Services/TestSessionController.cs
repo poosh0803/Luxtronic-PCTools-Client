@@ -3,18 +3,20 @@ using Luxtronic.PCTools.Models;
 namespace Luxtronic.PCTools.Services;
 
 /// <summary>
-/// Orchestrates one full CPU test session end to end: fetch config -> create session ->
-/// start test run -> connect telemetry -> run Prime95 while streaming sensor samples ->
-/// complete test run -> end session. This is the CPU-only walking skeleton described in
-/// PROJECT_PLAN.md §9 - GPU/RAM/SSD orchestration (and the client-side awareness of the
-/// concurrency rule in CONTRACT.md §6 that would matter once multiple components can run
-/// together) is intentionally not built here.
+/// Orchestrates one full CPU or GPU test session end to end: fetch config -> create session ->
+/// start test run -> connect telemetry -> run Prime95/FurMark while streaming sensor samples ->
+/// complete test run -> end session. RunCpuTestSessionAsync/RunGpuTestSessionAsync are standalone
+/// and mutually exclusive (share the same <see cref="IsRunning"/> guard) - not CONTRACT.md §6's
+/// "together" mode (cpu+gpu running concurrently), which the server already supports
+/// (concurrency.js) but this client doesn't attempt yet; that would need reworking this class's
+/// single-run-at-a-time design and the UI's single Start/Stop button pair. RAM/SSD orchestration
+/// (beyond the passive SubmitSsdSmartDataAsync below) is intentionally not built here either.
 ///
 /// Scope simplification (judgment call, flagged for reconciliation): this pass treats
-/// "one session = one CPU test run" and ends the session automatically right after the test
+/// "one session = one test run" and ends the session automatically right after the test
 /// completes. CONTRACT.md's data model allows multiple test_runs per session (e.g. CPU then
 /// GPU in the same visit), and a fuller UI would likely keep the session open with an
-/// explicit "End Session" action. That's out of scope while only CPU is wired up.
+/// explicit "End Session" action. That's out of scope while CPU/GPU are run one at a time.
 /// </summary>
 public sealed class TestSessionController : IAsyncDisposable
 {
@@ -23,6 +25,7 @@ public sealed class TestSessionController : IAsyncDisposable
     private readonly LuxApiClient _api;
     private readonly SensorMonitor _sensors;
     private readonly Prime95Runner _prime95;
+    private readonly FurMarkRunner _furmark;
     private readonly AppSettingsProvider _settings;
     private readonly ApiKeyProvider _apiKey;
 
@@ -33,19 +36,21 @@ public sealed class TestSessionController : IAsyncDisposable
     public bool IsRunning { get; private set; }
 
     /// <summary>Fetches the current server config (CONTRACT.md §3) without starting a session or
-    /// test run - used by the UI to show the configured CPU duration before the technician clicks
-    /// Start, not just after. RunCpuTestSessionAsync fetches its own fresh copy at test-run time
-    /// regardless (config could change between an early UI display and an actual run), so this is
-    /// purely informational.</summary>
+    /// test run - used by the UI to show the configured CPU/GPU duration before the technician
+    /// clicks Start, not just after. RunCpuTestSessionAsync/RunGpuTestSessionAsync fetch their own
+    /// fresh copy at test-run time regardless (config could change between an early UI display and
+    /// an actual run), so this is purely informational.</summary>
     public Task<ServerConfig> GetConfigAsync(CancellationToken ct = default) => _api.GetConfigAsync(ct);
 
     public TestSessionController(
-        AppSettingsProvider settings, ApiKeyProvider apiKey, SensorMonitor sensors, Prime95Runner prime95)
+        AppSettingsProvider settings, ApiKeyProvider apiKey, SensorMonitor sensors,
+        Prime95Runner prime95, FurMarkRunner furmark)
     {
         _settings = settings;
         _apiKey = apiKey;
         _sensors = sensors;
         _prime95 = prime95;
+        _furmark = furmark;
         _api = new LuxApiClient(settings.ServerBaseUrl, apiKey.Key);
     }
 
@@ -257,6 +262,214 @@ public sealed class TestSessionController : IAsyncDisposable
     }
 
     /// <summary>
+    /// Mirrors <see cref="RunCpuTestSessionAsync"/> structurally, for GPU/FurMark instead of
+    /// CPU/Prime95 - own session, own test_run (component=gpu), own telemetry samples. Shares
+    /// <see cref="IsRunning"/> with the CPU path (throws the same way if either is already
+    /// running), which is what actually enforces "one test at a time" - the UI's checkbox mutual
+    /// exclusion is a second, belt-and-suspenders layer on top of this.
+    /// </summary>
+    /// <param name="uiLifetime">Cancelled only if the app is shutting down - see the identical
+    /// remark on RunCpuTestSessionAsync.</param>
+    /// <param name="onReading">Invoked once per sensor poll cycle with the exact GPU reading just
+    /// sent as telemetry - same threading contract as RunCpuTestSessionAsync's onReading.</param>
+    public async Task RunGpuTestSessionAsync(
+        CreateSessionRequest sessionInfo, Action<string> onLog, Action<GpuReadings>? onReading = null,
+        CancellationToken uiLifetime = default)
+    {
+        if (IsRunning)
+        {
+            throw new InvalidOperationException("A test session is already running.");
+        }
+
+        IsRunning = true;
+        _stopCts = new CancellationTokenSource();
+        _stopWasSensorFailure = false;
+
+        string? sessionId = null;
+        string? testRunId = null;
+        var consecutiveSensorFailures = 0;
+        double? maxTemp = null;
+
+        try
+        {
+            onLog("Fetching server config (GET /api/config)...");
+            var config = await _api.GetConfigAsync(uiLifetime).ConfigureAwait(false);
+            var gpuCfg = config.Gpu ?? throw new InvalidOperationException(
+                "Server config response had no 'gpu' subtree - check CONTRACT.md §3 shape matches.");
+
+            onLog("Creating session (POST /api/sessions)...");
+            sessionId = await _api.CreateSessionAsync(sessionInfo, uiLifetime).ConfigureAwait(false);
+            onLog($"Session created: {sessionId}");
+
+            onLog("Starting GPU test run (POST .../test-runs)...");
+            testRunId = await _api.StartTestRunAsync(sessionId, Component.Gpu, uiLifetime).ConfigureAwait(false);
+            onLog($"Test run started: {testRunId}");
+
+            _telemetry = new TelemetryPublisher();
+            await _telemetry.ConnectAsync(_settings.ServerBaseUrl, _apiKey.Key, uiLifetime).ConfigureAwait(false);
+            onLog("Telemetry WebSocket connected (/ws/telemetry).");
+
+            using var pollCts = CancellationTokenSource.CreateLinkedTokenSource(uiLifetime);
+            var capturedTestRunId = testRunId;
+
+            var pollTask = Task.Run(async () =>
+            {
+                while (!pollCts.IsCancellationRequested)
+                {
+                    try
+                    {
+                        var reading = _sensors.ReadGpu();
+                        consecutiveSensorFailures = 0;
+                        if (reading is not null)
+                        {
+                            onReading?.Invoke(reading);
+                        }
+
+                        var ts = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+                        var samples = new List<TelemetrySample>(6);
+                        if (reading?.CoreTempC is double t)
+                        {
+                            samples.Add(new TelemetrySample { TestRunId = capturedTestRunId, Ts = ts, SensorName = "gpu_core_temp_c", Value = t });
+                            maxTemp = maxTemp is null ? t : Math.Max(maxTemp.Value, t);
+                        }
+                        if (reading?.HotSpotTempC is double hs)
+                        {
+                            samples.Add(new TelemetrySample { TestRunId = capturedTestRunId, Ts = ts, SensorName = "gpu_hot_spot_temp_c", Value = hs });
+                        }
+                        if (reading?.LoadPct is double l)
+                        {
+                            samples.Add(new TelemetrySample { TestRunId = capturedTestRunId, Ts = ts, SensorName = "gpu_load_pct", Value = l });
+                        }
+                        if (reading?.FanRpm is double f)
+                        {
+                            samples.Add(new TelemetrySample { TestRunId = capturedTestRunId, Ts = ts, SensorName = "gpu_fan_rpm", Value = f });
+                        }
+                        if (reading?.CoreClockMhz is double cc)
+                        {
+                            samples.Add(new TelemetrySample { TestRunId = capturedTestRunId, Ts = ts, SensorName = "gpu_core_clock_mhz", Value = cc });
+                        }
+                        if (reading?.PowerW is double p)
+                        {
+                            samples.Add(new TelemetrySample { TestRunId = capturedTestRunId, Ts = ts, SensorName = "gpu_power_w", Value = p });
+                        }
+
+                        if (samples.Count == 0)
+                        {
+                            onLog("Sensor poll returned no readable values this cycle.");
+                        }
+
+                        foreach (var s in samples)
+                        {
+                            await _telemetry.SendSampleAsync(s, pollCts.Token).ConfigureAwait(false);
+                        }
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        consecutiveSensorFailures++;
+                        onLog($"Sensor/telemetry read failed ({consecutiveSensorFailures}/{MaxConsecutiveSensorFailures}): {ex.Message}");
+                        if (consecutiveSensorFailures >= MaxConsecutiveSensorFailures)
+                        {
+                            onLog("Repeated sensor/telemetry failures - aborting test run as client_error.");
+                            _stopWasSensorFailure = true;
+                            _stopCts.Cancel();
+                            return;
+                        }
+                    }
+
+                    try
+                    {
+                        await Task.Delay(_settings.TelemetrySampleIntervalMs, pollCts.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                }
+            }, uiLifetime);
+
+            var runResult = await _furmark.RunAsync(gpuCfg, _stopCts.Token, onLog, uiLifetime).ConfigureAwait(false);
+
+            pollCts.Cancel();
+            try
+            {
+                await pollTask.ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                onLog($"Sensor polling loop ended with an exception: {ex.Message}");
+            }
+
+            var effectiveStopReason = runResult.StopReason;
+            if (runResult.WasExternallyStopped)
+            {
+                effectiveStopReason = _stopWasSensorFailure ? Models.StopReason.ClientError : Models.StopReason.UserAbort;
+            }
+
+            var summary = BuildGpuSummaryStats(runResult.ErrorCount, maxTemp);
+
+            onLog("Completing test run (PATCH .../test-runs/:id)...");
+            await _api.CompleteTestRunAsync(sessionId, testRunId, new CompleteTestRunRequest
+            {
+                ToolExitCode = runResult.ExitCode,
+                ToolOutputRaw = Truncate(runResult.RawOutput, 200_000),
+                SummaryStats = summary,
+                StopReason = effectiveStopReason,
+            }, uiLifetime).ConfigureAwait(false);
+            onLog("Test run completion recorded on the server.");
+        }
+        catch (Exception ex)
+        {
+            onLog($"ERROR: {ex.Message}");
+
+            if (sessionId is not null && testRunId is not null)
+            {
+                try
+                {
+                    await _api.CompleteTestRunAsync(sessionId, testRunId, new CompleteTestRunRequest
+                    {
+                        ToolExitCode = null,
+                        ToolOutputRaw = ex.ToString(),
+                        SummaryStats = new Dictionary<string, object>(),
+                        StopReason = Models.StopReason.ClientError,
+                    }, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Nothing more we can do client-side - session-end auto-close will catch it.
+                }
+            }
+
+            throw;
+        }
+        finally
+        {
+            if (sessionId is not null)
+            {
+                try
+                {
+                    onLog("Ending session (PATCH /api/sessions/:id)...");
+                    await _api.EndSessionAsync(sessionId, CancellationToken.None).ConfigureAwait(false);
+                    onLog("Session ended.");
+                }
+                catch (Exception ex)
+                {
+                    onLog($"Warning: failed to end session cleanly: {ex.Message}");
+                }
+            }
+
+            if (_telemetry is not null)
+            {
+                await _telemetry.DisposeAsync().ConfigureAwait(false);
+                _telemetry = null;
+            }
+
+            IsRunning = false;
+            _stopCts?.Dispose();
+            _stopCts = null;
+        }
+    }
+
+    /// <summary>
     /// Reports SMART data for every detected drive as its own SSD test_run, one
     /// start+complete pair per drive (SsdSmartInfo has no clean way to represent multiple
     /// drives in a single flat summary_stats object - see SSD_SMART_ADDENDUM.md in the shared
@@ -326,6 +539,19 @@ public sealed class TestSessionController : IAsyncDisposable
         var summary = new Dictionary<string, object> { ["error_count"] = errorCount };
         if (maxTempObserved is double mt) summary["max_temp_c"] = mt;
         if (avgLoadPct is double al) summary["avg_load_pct"] = al;
+        return summary;
+    }
+
+    /// <summary>
+    /// GPU equivalent of <see cref="BuildSummaryStats"/> - no avg_load_pct, since CONTRACT.md
+    /// §3's gpu config subtree only thresholds error_count/max_temp_c (no load-based threshold
+    /// exists for gpu, same as cpu's avg_load_pct being informational-only there too - kept out
+    /// here to match what's actually in the gpu config, rather than carrying an unused field).
+    /// </summary>
+    internal static Dictionary<string, object> BuildGpuSummaryStats(int errorCount, double? maxTempObserved)
+    {
+        var summary = new Dictionary<string, object> { ["error_count"] = errorCount };
+        if (maxTempObserved is double mt) summary["max_temp_c"] = mt;
         return summary;
     }
 

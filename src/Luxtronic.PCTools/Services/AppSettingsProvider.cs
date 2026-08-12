@@ -15,6 +15,7 @@ public sealed class AppSettingsProvider
     public string ServerBaseUrl { get; }
     public string ApiKeyFilePath { get; }
     public string ToolsDirectory { get; }
+    public string GpuToolsDirectory { get; }
     public int TelemetrySampleIntervalMs { get; }
 
     private AppSettingsProvider(RawSettings raw, string baseDir)
@@ -22,6 +23,7 @@ public sealed class AppSettingsProvider
         ServerBaseUrl = raw.ServerBaseUrl.TrimEnd('/');
         ApiKeyFilePath = ResolvePath(baseDir, raw.ApiKeyFilePath);
         ToolsDirectory = ResolveToolsDirectory(baseDir, raw.ToolsDirectory);
+        GpuToolsDirectory = ResolveToolsDirectory(baseDir, raw.GpuToolsDirectory);
         TelemetrySampleIntervalMs = raw.TelemetrySampleIntervalMs > 0 ? raw.TelemetrySampleIntervalMs : 500;
     }
 
@@ -51,9 +53,10 @@ public sealed class AppSettingsProvider
     }
 
     /// <summary>
-    /// In a real publish, tools\prime95 ships next to the exe. In dev, the exe lives several
-    /// directories deep in bin\Debug\net8.0-windows\, so we also walk up looking for a
-    /// tools\prime95 folder (repo root) as a convenience - first match wins, base dir preferred.
+    /// Generic over whichever tools subfolder is configured (tools\prime95, tools\FurMark_win64,
+    /// ...). In a real publish, the folder ships next to the exe. In dev, the exe lives several
+    /// directories deep in bin\Debug\net8.0-windows\, so we also walk up looking for the folder
+    /// (repo root) as a convenience - first match wins, base dir preferred.
     /// </summary>
     private static string ResolveToolsDirectory(string baseDir, string configuredRelativePath)
     {
@@ -93,6 +96,9 @@ public sealed class AppSettingsProvider
 
         [JsonPropertyName("ToolsDirectory")]
         public string ToolsDirectory { get; set; } = "tools\\prime95";
+
+        [JsonPropertyName("GpuToolsDirectory")]
+        public string GpuToolsDirectory { get; set; } = "tools\\FurMark_win64";
 
         [JsonPropertyName("TelemetrySampleIntervalMs")]
         public int TelemetrySampleIntervalMs { get; set; } = 500;

@@ -23,6 +23,13 @@ tools/prime95/results.txt
 # fallback for hardware where LHM's own reads don't work - see README "Known risk")
 tools/hwi/*.exe
 
+# Real FurMark 2 install - third-party, not redistributed via this repo (EULA.txt: "free for any
+# use", but "cannot be sold or rented" and "may not alter" - bundling the unmodified folder is a
+# human decision, same as Prime95/HWiNFO - not committed piecemeal). Whole folder ignored except
+# a placeholder README, same pattern as tools/prime95/.
+tools/FurMark_win64/*
+!tools/FurMark_win64/README.md
+
 # Visual Studio / Rider
 .vs/
 .idea/

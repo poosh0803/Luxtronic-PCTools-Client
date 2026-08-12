@@ -205,6 +205,21 @@ public class ContractsSerializationTests
     }
 
     [Fact]
+    public void GpuConfig_JsonPropertyNames_MatchContract()
+    {
+        var gpuConfig = new GpuConfig
+        {
+            Tool = "furmark",
+            DurationMinutes = 20,
+            MaxTempC = 90,
+        };
+
+        Assert.Equal(
+            new HashSet<string> { "tool", "duration_minutes", "max_temp_c" },
+            PropertyNames(gpuConfig));
+    }
+
+    [Fact]
     public void ConcurrencyConfig_JsonPropertyNames_MatchContract()
     {
         var concurrencyConfig = new ConcurrencyConfig
@@ -224,19 +239,20 @@ public class ContractsSerializationTests
         var serverConfig = new ServerConfig
         {
             Cpu = new CpuConfig(),
+            Gpu = new GpuConfig(),
             Concurrency = new ConcurrencyConfig(),
         };
 
-        Assert.Equal(new HashSet<string> { "cpu", "concurrency" }, PropertyNames(serverConfig));
+        Assert.Equal(new HashSet<string> { "cpu", "gpu", "concurrency" }, PropertyNames(serverConfig));
     }
 
     [Fact]
     public void ServerConfig_DeserializesFullContractExample_IgnoringUnmodeledSubtrees()
     {
-        // The full CONTRACT.md §3 example, including gpu/ram/ssd subtrees that Contracts.cs
-        // deliberately doesn't model yet (comment in Contracts.cs explains why). This confirms
-        // that deserialization tolerates the unmodeled subtrees rather than throwing, and that
-        // the modeled cpu/concurrency subtrees still come through correctly.
+        // The full CONTRACT.md §3 example. ram/ssd subtrees are deliberately not modeled yet
+        // (comment in Contracts.cs explains why) - this confirms deserialization tolerates those
+        // unmodeled subtrees rather than throwing, and that the modeled cpu/gpu/concurrency
+        // subtrees all come through correctly.
         const string json = """
         {
           "cpu": { "tool": "prime95", "mode": "blend", "duration_minutes": 60, "max_temp_c": 95 },
@@ -254,6 +270,11 @@ public class ContractsSerializationTests
         Assert.Equal("blend", config.Cpu.Mode);
         Assert.Equal(60, config.Cpu.DurationMinutes);
         Assert.Equal(95, config.Cpu.MaxTempC);
+
+        Assert.NotNull(config.Gpu);
+        Assert.Equal("furmark", config.Gpu!.Tool);
+        Assert.Equal(20, config.Gpu.DurationMinutes);
+        Assert.Equal(90, config.Gpu.MaxTempC);
 
         Assert.NotNull(config.Concurrency);
         Assert.True(config.Concurrency!.CpuGpuTogetherAllowed);

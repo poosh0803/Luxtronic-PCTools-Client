@@ -74,10 +74,13 @@
         <GroupBox Grid.Row="3" Header="Tests to run" Margin="0,0,0,10">
             <StackPanel Margin="6">
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                    <CheckBox x:Name="CpuTestCheck" Content="CPU - Prime95 Torture Test" IsChecked="True" FontWeight="SemiBold"/>
+                    <CheckBox x:Name="CpuTestCheck" Content="CPU - Prime95 Torture Test" IsChecked="True" FontWeight="SemiBold" Checked="CpuTestCheck_Checked"/>
                     <TextBlock x:Name="CpuDurationText" Text="(duration: checking...)" Foreground="Gray" Margin="8,0,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
-                <CheckBox Content="GPU - FurMark (coming soon)" IsEnabled="False" Foreground="Gray" Margin="0,0,0,6"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <CheckBox x:Name="GpuTestCheck" Content="GPU - FurMark Stress Test" FontWeight="SemiBold" Checked="GpuTestCheck_Checked"/>
+                    <TextBlock x:Name="GpuDurationText" Text="(duration: checking...)" Foreground="Gray" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
                 <CheckBox Content="RAM - TestMem5 (coming soon)" IsEnabled="False" Foreground="Gray" Margin="0,0,0,6"/>
                 <CheckBox Content="SSD - CrystalDiskMark (coming soon)" IsEnabled="False" Foreground="Gray"/>
             </StackPanel>

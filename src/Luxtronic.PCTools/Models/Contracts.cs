@@ -34,14 +34,17 @@ public static class StopReason
 // ---- GET /api/config (CONTRACT.md §3) ----------------------------------------------------
 
 /// <summary>
-/// Mirrors the server config JSON (CONTRACT.md §3). Only "cpu" and "concurrency" are modeled
-/// since gpu/ram/ssd wrappers aren't built this pass; System.Text.Json ignores the unmodeled
+/// Mirrors the server config JSON (CONTRACT.md §3). Only "cpu", "gpu", and "concurrency" are
+/// modeled since ram/ssd wrappers aren't built this pass; System.Text.Json ignores the unmodeled
 /// subtrees on deserialize, so fetching the full config document still works fine.
 /// </summary>
 public sealed class ServerConfig
 {
     [JsonPropertyName("cpu")]
     public CpuConfig? Cpu { get; set; }
+
+    [JsonPropertyName("gpu")]
+    public GpuConfig? Gpu { get; set; }
 
     [JsonPropertyName("concurrency")]
     public ConcurrencyConfig? Concurrency { get; set; }
@@ -61,6 +64,20 @@ public sealed class CpuConfig
 
     [JsonPropertyName("max_temp_c")]
     public double MaxTempC { get; set; } = 95;
+}
+
+/// <summary>No "mode" field, unlike CpuConfig - CONTRACT.md §3's gpu subtree is just tool/duration/
+/// max_temp_c.</summary>
+public sealed class GpuConfig
+{
+    [JsonPropertyName("tool")]
+    public string Tool { get; set; } = "furmark";
+
+    [JsonPropertyName("duration_minutes")]
+    public int DurationMinutes { get; set; } = 20;
+
+    [JsonPropertyName("max_temp_c")]
+    public double MaxTempC { get; set; } = 90;
 }
 
 public sealed class ConcurrencyConfig

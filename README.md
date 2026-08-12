@@ -5,14 +5,18 @@ under test (new build QC or customer repair), technician-operated only. See
 [CLAUDE.md](CLAUDE.md), [PROJECT_PLAN.md](PROJECT_PLAN.md), and [CONTRACT.md](CONTRACT.md) for
 the full design - this README only covers building/running this client.
 
-## Current scope: CPU-only walking skeleton
+## Current scope: CPU + GPU, standalone (not concurrent)
 
-Per `PROJECT_PLAN.md` §9, this first pass implements one complete vertical slice for the CPU
-test only (Prime95), to prove the sensor-driver risk (see below) and the CONTRACT.md
-API/WebSocket shapes work end-to-end before GPU/RAM/SSD wrappers are added. GPU/RAM/SSD
+Per `PROJECT_PLAN.md` §9, this started as one complete vertical slice for the CPU test only
+(Prime95), to prove the sensor-driver risk (see below) and the CONTRACT.md API/WebSocket shapes
+work end-to-end - GPU (FurMark 2) has since been wired up the same way. **CPU and GPU are
+mutually exclusive in this pass**, not CONTRACT.md §6's "together" mode (cpu+gpu running
+concurrently) - the server already fully supports that (`concurrency.js`), but the client doesn't
+attempt it yet; `TestSessionController.RunCpuTestSessionAsync`/`RunGpuTestSessionAsync` share a
+single `IsRunning` guard, and `MainWindow`'s CPU/GPU checkboxes uncheck each other. RAM/SSD
 checkboxes exist in the UI but are disabled/greyed ("coming soon") - not wired to anything.
 
-Two exceptions:
+Two exceptions to the "one test at a time" scope:
 
 - `Services/SsdSmartReader.cs` (drive identity + S.M.A.R.T. health via LibreHardwareMonitorLib)
   is wired up and reports to the server - see
@@ -25,10 +29,18 @@ Two exceptions:
   (sequential read/write, CONTRACT.md §3's `min_seq_*_mb_s`) isn't implemented at all, and
   there's no UI checkbox or exclusive-concurrency wiring for a technician-initiated SSD test -
   this is SMART health reporting only, piggybacking on the CPU test session.
-- GPU sensors (temp, hot spot, core/memory clock, load, fan, power, VRAM) are read via
-  `SensorMonitor.ReadGpu()` and shown live in the UI (see below), but purely for display - unlike
-  SSD SMART data, none of it is sent to the server. No FurMark wrapper, no GPU test_run, no
-  telemetry. Display only.
+- GPU sensors (temp, hot spot, core/memory clock, load, fan, power, VRAM) are always read live via
+  `SensorMonitor.ReadGpu()` and shown in the UI's idle readout regardless of which test is
+  selected - separate from whether a GPU *test* is actually running.
+
+`Services/FurMarkRunner.cs` wraps FurMark 2 (`tools/FurMark_win64/` - see its own README for setup)
+the same way `Prime95Runner.cs` wraps Prime95: `TestSessionController.RunGpuTestSessionAsync`
+mirrors `RunCpuTestSessionAsync`'s fetch-config/create-session/start-test-run/poll-and-stream-
+telemetry/complete-test-run/end-session flow, streaming `gpu_core_temp_c`, `gpu_hot_spot_temp_c`,
+`gpu_load_pct`, `gpu_fan_rpm`, `gpu_core_clock_mhz`, `gpu_power_w` and using FurMark's
+`--artifact-scanner` flag (GPU rendering-corruption detection) toward `summary_stats.error_count`
+- see `FurMarkRunner`'s class remarks for what's ground-truthed there and what isn't (the artifact
+*detection* log format specifically hasn't been observed against a real detected artifact).
 
 The client never computes pass/fail and never shows results locally - that's server/dashboard
 only, by design (CONTRACT.md §7, PROJECT_PLAN.md §4).
@@ -334,8 +346,12 @@ src/Luxtronic.PCTools/        WPF client app (net8.0-windows)
                                  (temp/load/fan/clock for CPU, full reading set for GPU) - see
                                  "Known risk" above
     Prime95Runner.cs           Prime95 process wrapper
-    TestSessionController.cs   Orchestrates one full CPU test session end-to-end, plus the
-                                 per-drive SSD SMART reporting described above
+    FurMarkRunner.cs           FurMark 2 process wrapper - mirrors Prime95Runner, simpler in one
+                                 respect (--max-time makes FurMark exit on its own, no external
+                                 kill-after-duration needed like Prime95 requires)
+    TestSessionController.cs   Orchestrates one full CPU or GPU test session end-to-end (standalone,
+                                 not concurrent - see "Current scope" above), plus the per-drive SSD
+                                 SMART reporting described above
   MainWindow.xaml(.cs)         The one screen: session form (customer/type/notes), test checkboxes
                                  with the server-configured CPU duration shown next to the CPU one,
                                  machine identity panel (mobo serial, live CPU sensor readout, live
@@ -352,6 +368,8 @@ tools/prime95/README.md        Placeholder - drop prime95.exe here manually (not
 tools/hwi/                     Placeholder - drop the real HWiNFO64.exe here manually (not
                                  auto-downloaded, not committed - see "Known risk" above). Optional:
                                  only needed on hardware where LHM's own CPU temp/clock reads fail
+tools/FurMark_win64/README.md  Placeholder - drop the real FurMark 2 install here manually (not
+                                 auto-downloaded, not committed)
 publish-assets/                Launch.ps1/Launch.bat - copied into publish/win-x64/ by dev-menu.ps1
                                  option 10 (not produced by dotnet publish itself). What a
                                  technician actually double-clicks on the target PC: runs a

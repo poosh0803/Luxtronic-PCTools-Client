@@ -39,21 +39,23 @@ public partial class MainWindow : Window
         {
             InitializeSsdSummary();
         }
-        await InitializeCpuDurationAsync().ConfigureAwait(true);
+        await InitializeDurationTextsAsync().ConfigureAwait(true);
     }
 
     /// <summary>
-    /// Shows the server-configured CPU test duration before the technician clicks Start, not
-    /// just after (RunCpuTestSessionAsync fetches its own fresh copy at run time regardless - see
-    /// TestSessionController.GetConfigAsync remarks). Best-effort: if the server's unreachable at
-    /// app open, this just leaves a clear placeholder rather than blocking startup - the same
-    /// fetch happens again for real when Start is clicked.
+    /// Shows the server-configured CPU and GPU test durations before the technician clicks Start,
+    /// not just after (RunCpuTestSessionAsync/RunGpuTestSessionAsync each fetch their own fresh
+    /// copy at run time regardless - see TestSessionController.GetConfigAsync remarks). One config
+    /// fetch, not two, since both durations come from the same GET /api/config response.
+    /// Best-effort: if the server's unreachable at app open, this just leaves a clear placeholder
+    /// rather than blocking startup - the same fetch happens again for real when Start is clicked.
     /// </summary>
-    private async Task InitializeCpuDurationAsync()
+    private async Task InitializeDurationTextsAsync()
     {
         if (_controller is null)
         {
             CpuDurationText.Text = "(duration unavailable - controller not initialized)";
+            GpuDurationText.Text = "(duration unavailable - controller not initialized)";
             return;
         }
 
@@ -63,10 +65,14 @@ public partial class MainWindow : Window
             CpuDurationText.Text = config.Cpu is { } cpuCfg
                 ? $"(duration: {cpuCfg.DurationMinutes} min)"
                 : "(duration: not set in server config)";
+            GpuDurationText.Text = config.Gpu is { } gpuCfg
+                ? $"(duration: {gpuCfg.DurationMinutes} min)"
+                : "(duration: not set in server config)";
         }
         catch (Exception ex)
         {
             CpuDurationText.Text = "(duration unavailable - could not reach server)";
+            GpuDurationText.Text = "(duration unavailable - could not reach server)";
             AppendLog($"WARNING: could not fetch server config for duration display: {ex.Message}");
         }
     }
@@ -123,6 +129,8 @@ public partial class MainWindow : Window
             AppendLog(SensorStatusText.Text);
             CpuTestCheck.IsEnabled = false;
             CpuTestCheck.IsChecked = false;
+            GpuTestCheck.IsEnabled = false;
+            GpuTestCheck.IsChecked = false;
             StartButton.IsEnabled = false;
 
             // Best-effort: if the stuck call eventually does return, at least log it instead of
@@ -162,8 +170,10 @@ public partial class MainWindow : Window
                 {
                     CpuTestCheck.IsEnabled = false;
                     CpuTestCheck.IsChecked = false;
+                    GpuTestCheck.IsEnabled = false;
+                    GpuTestCheck.IsChecked = false;
                     StartButton.IsEnabled = false;
-                    AppendLog("CPU test disabled: sensors are not reporting data. Fix the driver/elevation issue above and restart the app.");
+                    AppendLog("CPU/GPU tests disabled: sensors are not reporting data. Fix the driver/elevation issue above and restart the app.");
                 }
                 else
                 {
@@ -179,6 +189,8 @@ public partial class MainWindow : Window
                 AppendLog($"ERROR initializing sensors: {ex}");
                 CpuTestCheck.IsEnabled = false;
                 CpuTestCheck.IsChecked = false;
+                GpuTestCheck.IsEnabled = false;
+                GpuTestCheck.IsChecked = false;
                 StartButton.IsEnabled = false;
             }
         }
@@ -187,7 +199,9 @@ public partial class MainWindow : Window
         {
             var apiKey = new ApiKeyProvider(_settings.ApiKeyFilePath);
             AppendLog($"API key loaded from {apiKey.SourcePath}.");
-            _controller = new TestSessionController(_settings, apiKey, _sensors!, new Prime95Runner(_settings.ToolsDirectory));
+            _controller = new TestSessionController(
+                _settings, apiKey, _sensors!,
+                new Prime95Runner(_settings.ToolsDirectory), new FurMarkRunner(_settings.GpuToolsDirectory));
         }
         catch (Exception ex)
         {
@@ -203,6 +217,13 @@ public partial class MainWindow : Window
                 ? $"Prime95 found at {prime95Path}."
                 : $"Prime95 NOT found at {prime95Path} - drop the real binary there before starting a " +
                   "test (see tools/prime95/README.md). Start will fail until then.");
+
+            var furmarkPath = Path.Combine(_settings.GpuToolsDirectory, "furmark.exe");
+            var furmarkFound = File.Exists(furmarkPath);
+            AppendLog(furmarkFound
+                ? $"FurMark found at {furmarkPath}."
+                : $"FurMark NOT found at {furmarkPath} - drop the real FurMark 2 install there before " +
+                  "starting a GPU test (see tools/FurMark_win64/README.md). Start will fail until then.");
         }
 
         AppendLog($"Server: {_settings.ServerBaseUrl}");
@@ -251,6 +272,21 @@ public partial class MainWindow : Window
         }
     }
 
+    // Null-guarded: CpuTestCheck's XAML-set IsChecked="True" fires this Checked handler during
+    // InitializeComponent() itself, before GpuTestCheck (declared later in the XAML) has been
+    // assigned yet - confirmed by reproducing it, a real NullReferenceException crash on every
+    // launch, not a hypothetical. Both are always non-null for any real user interaction, which
+    // only happens after InitializeComponent() has fully returned.
+    private void CpuTestCheck_Checked(object sender, RoutedEventArgs e)
+    {
+        if (GpuTestCheck is not null) GpuTestCheck.IsChecked = false;
+    }
+
+    private void GpuTestCheck_Checked(object sender, RoutedEventArgs e)
+    {
+        if (CpuTestCheck is not null) CpuTestCheck.IsChecked = false;
+    }
+
     private async void StartButton_Click(object sender, RoutedEventArgs e)
     {
         if (_controller is null || _controller.IsRunning)
@@ -267,9 +303,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (CpuTestCheck.IsChecked != true)
+        // CpuTestCheck/GpuTestCheck are mutually exclusive (see the Checked handlers above), so at
+        // most one of these is true - this is just "was anything selected at all".
+        if (CpuTestCheck.IsChecked != true && GpuTestCheck.IsChecked != true)
         {
-            MessageBox.Show(this, "Select the CPU test to run (it's the only test wired up this pass).",
+            MessageBox.Show(this, "Select a test to run (CPU or GPU - those are the only two wired up this pass).",
                 "Nothing selected", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -301,7 +339,14 @@ public partial class MainWindow : Window
 
         try
         {
-            await _controller.RunCpuTestSessionAsync(request, AppendLog, UpdateLiveReadout).ConfigureAwait(true);
+            if (CpuTestCheck.IsChecked == true)
+            {
+                await _controller.RunCpuTestSessionAsync(request, AppendLog, UpdateLiveReadout).ConfigureAwait(true);
+            }
+            else
+            {
+                await _controller.RunGpuTestSessionAsync(request, AppendLog, UpdateGpuLiveReadout).ConfigureAwait(true);
+            }
         }
         catch (Exception ex)
         {
@@ -335,6 +380,7 @@ public partial class MainWindow : Window
         NewBuildRadio.IsEnabled = !running;
         RepairRadio.IsEnabled = !running;
         CpuTestCheck.IsEnabled = !running && _sensorsHealthy;
+        GpuTestCheck.IsEnabled = !running && _sensorsHealthy;
         RunningIndicator.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -360,10 +406,11 @@ public partial class MainWindow : Window
                 AppendLog($"Idle sensor poll failed: {ex.Message}");
             }
 
-            // GPU isn't part of TestSessionController's poll loop (CPU-only test this pass), so
-            // this - the idle timer - is its only reader. It naturally goes stale during a CPU
-            // test run (timer stopped, same as CPU's live readout freezing), which is fine since
-            // no GPU test can be running concurrently anyway (no GPU checkbox wired up yet).
+            // This is only the idle-time GPU reader - RunGpuTestSessionAsync does its own polling
+            // (via onReading -> UpdateGpuLiveReadout) while a GPU test is actually running, same
+            // as CPU. StopIdleSensorTimer() is called before either test starts (see
+            // StartButton_Click), so there's no risk of this and a running test's own poll loop
+            // reading concurrently.
             try
             {
                 GpuStatusText.Text = SensorMonitor.FormatGpuLiveReadout(_sensors!.ReadGpu());
@@ -389,6 +436,22 @@ public partial class MainWindow : Window
     private void UpdateLiveReadout(SensorReadings reading)
     {
         void Update() => SensorStatusText.Text = SensorMonitor.FormatLiveReadout(reading);
+
+        if (Dispatcher.CheckAccess())
+        {
+            Update();
+        }
+        else
+        {
+            Dispatcher.Invoke(Update);
+        }
+    }
+
+    /// <summary>GPU equivalent of <see cref="UpdateLiveReadout"/> - same threading contract
+    /// (RunGpuTestSessionAsync's poll loop calls this from a background thread).</summary>
+    private void UpdateGpuLiveReadout(GpuReadings reading)
+    {
+        void Update() => GpuStatusText.Text = SensorMonitor.FormatGpuLiveReadout(reading);
 
         if (Dispatcher.CheckAccess())
         {
