@@ -79,8 +79,9 @@ assumed to work just because the publish command succeeded.
 
 On the target PC, run **`Launch.bat`** (also copied into the published folder by `dev-menu.ps1`
 option 10 - see `publish-assets/`), not the exe directly. It runs a pre-flight check (exe present,
-`prime95.exe` present, `apikey.txt` present, `appsettings.json` valid, server reachable, HWiNFO
-status) and reports exactly what's missing before launching, rather than the app either failing
+`prime95.exe` present, `apikey.txt` present, `appsettings.json` valid), starts HWiNFO64.exe
+unattended if present and waits for its shared memory to come up, checks the server is reachable,
+and reports exactly what's missing before launching, rather than the app either failing
 with a cryptic error or - the failure this was added to catch - coming up as a blank, permanently
 unresponsive window with no diagnostic at all (seen on a real technician test machine; traced to a
 LibreHardwareMonitorLib/WMI call able to hang instead of fail fast during startup, since fixed with
@@ -328,8 +329,10 @@ tools/hwi/                     Placeholder - drop the real HWiNFO64.exe here man
 publish-assets/                Launch.ps1/Launch.bat - copied into publish/win-x64/ by dev-menu.ps1
                                  option 10 (not produced by dotnet publish itself). What a
                                  technician actually double-clicks on the target PC: runs a
-                                 pre-flight check (exe/prime95/apikey/appsettings/server
-                                 reachability/HWiNFO present) before launching the app, so missing
+                                 pre-flight check (exe/prime95/apikey/appsettings), starts HWiNFO64
+                                 if present (unattended - HWiNFO64.INI's ShowWelcomeAndProgress=0
+                                 skips its startup dialog) and waits for its shared memory to come
+                                 up, checks server reachability, then launches the app - so missing
                                  prerequisites show up as a clear checklist instead of the app
                                  failing cryptically or hanging with no explanation
 publish/win-x64/               Self-contained single-file build output (dev-menu.ps1 option 10) -
