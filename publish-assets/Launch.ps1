@@ -9,9 +9,11 @@
     launching: the exe itself, prime95.exe, apikey.txt, appsettings.json validity, and whether the
     configured server is actually reachable right now. HWiNFO is actively started here (not just
     checked) before the server check, so its shared memory has time to come up before the app
-    does - see the HWiNFO section below. It's still only ever reported as [--]/[OK], never a
-    [FAIL] - it's an optional CPU temp/clock fallback for some hardware (see README "Known risk"),
-    not something every machine needs.
+    does - see the HWiNFO section below. It's the sole CPU/GPU sensor source now (no
+    LibreHardwareMonitorLib fallback - see README "Known risk"), still reported as [--]/[OK]
+    rather than [FAIL] since the app itself still launches without it (CPU/GPU sensors just come
+    up unhealthy and the CPU test gets disabled - the app's own Initialize() health check is the
+    authoritative gate, this is advisory).
 
     Deliberately does NOT elevate itself or pass -Verb RunAs when launching the exe - app.manifest
     already requests requireAdministrator, so Windows shows the UAC prompt on its own when the exe
@@ -88,14 +90,16 @@ if (Test-Path $AppSettings) {
         'This publish folder is incomplete - re-copy the whole published folder.'
 }
 
-# HWiNFO is optional (CPU temp/clock fallback on hardware where LibreHardwareMonitorLib's own
-# reads fail - see README "Known risk") - never a [FAIL], never blocks launch. Actively started
-# here (not just checked) rather than left for the technician to remember: its shared-memory block
-# only gets created once it's actually running, and tools\hwi\HWiNFO64.INI now has
-# ShowWelcomeAndProgress=0 set, so it starts straight to the sensor window with nothing to click
-# through - safe to launch unattended ahead of the app. Done before the server check below so its
-# shared memory has a few seconds to come up while that check (and its own network round trip)
-# runs, rather than racing the app's own startup.
+# HWiNFO is the sole CPU/GPU sensor source now (see README "Known risk" - no LibreHardwareMonitorLib
+# fallback) - still never a [FAIL] here, since the app itself is still usable without it (CPU/GPU
+# sensors just come up unhealthy and the CPU test gets disabled, same gating as any other sensor
+# failure), but it's no longer just an optional nice-to-have either. Actively started here (not
+# just checked) rather than left for the technician to remember: its shared-memory block only gets
+# created once it's actually running, and tools\hwi\HWiNFO64.INI now has ShowWelcomeAndProgress=0
+# set, so it starts straight to the sensor window with nothing to click through - safe to launch
+# unattended ahead of the app. Done before the server check below so its shared memory has a few
+# seconds to come up while that check (and its own network round trip) runs, rather than racing the
+# app's own startup.
 if (Test-Path $HwiExe) {
     Write-CheckOk 'HWiNFO64.exe present'
 
@@ -126,12 +130,12 @@ if (Test-Path $HwiExe) {
     }
 
     if ($hwiActive) {
-        Write-CheckOk 'HWiNFO shared memory active (fallback available if CPU temp/clock ever needs it)'
+        Write-CheckOk 'HWiNFO shared memory active (CPU/GPU sensors will work)'
     } else {
-        Write-CheckInfo 'HWiNFO shared memory not active yet - only matters if this app''s own CPU temp/clock reads come up blank. If so, check HWiNFO''s own window for errors, or that Settings > Shared Memory Support is enabled.'
+        Write-CheckInfo 'HWiNFO shared memory not active yet - CPU/GPU sensors will come up unhealthy and the CPU test will be disabled until this resolves. Check HWiNFO''s own window for errors, or that Settings > Shared Memory Support is enabled.'
     }
 } else {
-    Write-CheckInfo 'HWiNFO64.exe not present - optional, only needed as a CPU temp/clock fallback on some hardware.'
+    Write-CheckInfo 'HWiNFO64.exe not present - CPU/GPU sensors need it to work at all now (see README "Known risk"); the app itself will still launch, with the CPU test disabled.'
 }
 
 # Best-effort TCP reachability check, not a hard requirement - the app itself will report a clear

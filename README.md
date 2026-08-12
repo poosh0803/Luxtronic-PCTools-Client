@@ -41,9 +41,12 @@ only, by design (CONTRACT.md §7, PROJECT_PLAN.md §4).
   PC that just *runs* an already-built copy needs nothing installed at all if you deploy the
   self-contained publish (see "Deploying to a PC without .NET installed" below) - that's
   PROJECT_PLAN.md §4's original "single self-contained executable" goal.
-- Must run **elevated (as Administrator)** - `LibreHardwareMonitorLib` needs to load/start the
-  WinRing0 kernel driver to read CPU sensors. The built exe requests this automatically via
-  `app.manifest` (`requireAdministrator`), so Windows will prompt for elevation on launch.
+- Must run **elevated (as Administrator)** - `LibreHardwareMonitorLib` needs elevation for
+  Storage/SMART access (`SsdSmartReader.cs`). CPU/GPU sensors go through HWiNFO's shared memory
+  instead and don't need this app itself to be elevated (confirmed: reading HWiNFO's shared memory
+  works fine unelevated), but the requirement is left in place for Storage. The built exe requests
+  this automatically via `app.manifest` (`requireAdministrator`), so Windows will prompt for
+  elevation on launch.
 
 ## Build
 
@@ -73,9 +76,9 @@ setup" below): that technician's own `apikey.txt`, and a quick check that `appse
 `ServerBaseUrl` actually points at the real server.
 
 Verified working: launched the published exe elevated on this dev machine and confirmed sensors
-(CPU/GPU/Storage, including the WinRing0 native driver) come up the same as a regular build - the
-main risk with single-file + native libraries is exactly that class of failure, so this wasn't
-assumed to work just because the publish command succeeded.
+(CPU/GPU via HWiNFO, Storage via LHM's WinRing0 native driver) come up the same as a regular build
+- the main risk with single-file + native libraries is exactly that class of failure, so this
+wasn't assumed to work just because the publish command succeeded.
 
 On the target PC, run **`Launch.bat`** (also copied into the published folder by `dev-menu.ps1`
 option 10 - see `publish-assets/`), not the exe directly. It runs a pre-flight check (exe present,
@@ -175,30 +178,40 @@ dotnet build LuxtronicPCTools.sln
 
 ## Known risk this pass is meant to catch (PROJECT_PLAN.md §8)
 
-`LibreHardwareMonitorLib` depends on the WinRing0 kernel driver for sensor access. On Windows
-11 with Secure Boot + Memory Integrity (HVCI) enabled, that driver can silently fail to load -
-sensors just return nothing, no exception. `SensorMonitor.Initialize()`
-(`src/Luxtronic.PCTools/Services/SensorMonitor.cs`) checks the actual sensor count after the
-first poll and reports an explicit degraded state (visible in the UI's "Sensor status" line
-and the log) rather than assuming success just because nothing threw. If you see that warning
-on a real customer/shop machine, that's the risk materializing - check admin elevation first,
-then Windows Security > Device security > Core isolation > Memory integrity.
+**Current architecture**: CPU and GPU sensors are read via HWiNFO64's Shared Memory interface
+(`HwInfoSensorReader.cs`), not LibreHardwareMonitorLib. Storage/SMART still goes through LHM
+(`SsdSmartReader.cs`) - see "Why HWiNFO, not LHM, for CPU/GPU" below for how this came about.
+`SensorMonitor.Initialize()` (`src/Luxtronic.PCTools/Services/SensorMonitor.cs`) reads HWiNFO's
+shared memory once at startup and reports an explicit degraded state (visible in the UI's "Sensor
+status" line and the log) if it isn't reachable, rather than assuming success just because nothing
+threw. If you see that warning on a real customer/shop machine: HWiNFO64 either isn't running, or
+Settings > "Shared Memory Support" isn't enabled (`publish-assets/Launch.ps1` starts HWiNFO
+automatically before launching the app in a real deployment - if you're running the exe directly
+instead, launch `tools/hwi/HWiNFO64.exe` yourself first).
 
-**What happened in this dev environment**: sensors initialized cleanly - 39 sensors found
-(CPU temps, per-core/package, load, etc.) and the motherboard serial read correctly via WMI,
-even when the app was launched *unelevated* (via `dotnet exec`, which bypasses the manifest's
-elevation prompt - see "Run (dev)" above).
+### Why HWiNFO, not LHM, for CPU/GPU
+
+`LibreHardwareMonitorLib` depends on the WinRing0 kernel driver for CPU sensor access. On Windows
+11 with Secure Boot + Memory Integrity (HVCI) enabled, that driver can silently fail to load -
+sensors just return nothing, no exception. This was originally handled with a narrow fallback
+(HWiNFO used only when LHM's own CPU temp/clock came back null); HWiNFO has since become the sole
+CPU/GPU source, since it's proven reliably more available than LHM on affected hardware and is now
+started unattended alongside the app.
+
+**What happened in this dev environment, back when LHM was still primary**: sensors initialized
+cleanly - 39 sensors found (CPU temps, per-core/package, load, etc.) and the motherboard serial
+read correctly via WMI, even when the app was launched *unelevated* (via `dotnet exec`, which
+bypasses the manifest's elevation prompt - see "Run (dev)" above).
 
 **Confirmed materializing on real technician PCs/laptops**: multiple other machines showed CPU
 temp/clock/fan all null while GPU sensors (when a GPU was present) worked fine. This uncovered two
 things, one at a time:
 
-1. **A real bug in the health check itself.** The "is temperature actually readable" test was
-   scoped to *any* hardware's temperature sensor, not specifically the CPU's - so once GPU/Storage
-   sensor support was added, a working GPU or SSD temperature sensor silently masked a completely
-   dead CPU temperature path, reporting a false green "Sensors OK" while CPU temp/clock/fan stayed
-   null the whole time. Fixed by scoping the check to CPU hardware only (see
-   `SensorMonitor.Initialize()`'s remarks on `anyTemperatureValueReadable`).
+1. **A real bug in the (now-removed) LHM health check itself.** The "is temperature actually
+   readable" test was scoped to *any* hardware's temperature sensor, not specifically the CPU's -
+   so once GPU/Storage sensor support was added, a working GPU or SSD temperature sensor silently
+   masked a completely dead CPU temperature path, reporting a false green "Sensors OK" while CPU
+   temp/clock/fan stayed null the whole time.
 2. **HVCI turned out not to be the actual cause.** The health-check message initially named Secure
    Boot/HVCI as the likely explanation, on the reasoning that GPU vendor APIs don't need WinRing0
    the way CPU MSR reads do. Further field testing disproved that: on one affected machine, Memory
@@ -207,19 +220,29 @@ things, one at a time:
    correctly. If HVCI were blocking WinRing0-style drivers generically, HWiNFO's own kernel driver
    would have failed too. It didn't, which points at a LibreHardwareMonitorLib-specific limitation
    for this CPU/board combination instead - matching an open, unresolved upstream GitHub issue for
-   the same CPU family, not an HVCI policy question a technician can toggle their way out of.
+   the same CPU family, not an HVCI policy question a technician can toggle their way out of. This
+   is the concrete evidence behind moving CPU/GPU off LHM entirely rather than continuing to patch
+   around it.
 
-**Fix**: `HwInfoSensorReader.cs` reads CPU temperature/clock from HWiNFO64's Shared Memory
-interface as a fallback, used only when LibreHardwareMonitorLib's own values come back null (see
-`SensorMonitor.ReadCpu()`/`Initialize()`). Requires HWiNFO64 running in the background with
-Settings > "Shared Memory Support" enabled (GUI-only toggle, restart HWiNFO after enabling it -
-see the class remarks for why) - `tools/hwi/` is where a technician/developer drops the real
-`HWiNFO64.exe`, same drop-in pattern as `tools/prime95/`. Ground-truthed against a real 342-reading
-HWiNFO shared-memory dump on the same Intel i5-11400F used throughout this README - see
-`HwInfoSensorReaderTests.RealCpuReadings` for the exact fixture. Only validated against this one
-Intel CPU/HWiNFO version - AMD and other HWiNFO versions may use different label text for the same
-metrics, worth re-confirming if CPU temp is still null on an affected AMD machine even with HWiNFO
-installed and configured.
+**Current implementation**: `HwInfoSensorReader.cs` reads CPU temperature/clock/load/fan and the
+full GPU reading set from HWiNFO64's Shared Memory. Requires HWiNFO64 running in the background
+with Settings > "Shared Memory Support" enabled (GUI-only toggle, restart HWiNFO after enabling it
+- see the class remarks for why; `tools/hwi/HWiNFO64.INI` in this repo already has it set) -
+`tools/hwi/` is where a technician/developer drops the real `HWiNFO64.exe`, same drop-in pattern as
+`tools/prime95/`. Label-matching is ground-truthed against a real, live HWiNFO shared-memory dump
+on the same Intel i5-11400F + NVIDIA GTX 1080 Ti used throughout this README (342 CPU-side
+readings, 76 GPU-side readings) - see `HwInfoSensorReaderTests.cs` for the exact fixtures. Only
+validated against this one Intel CPU / NVIDIA GPU / HWiNFO version combination - AMD/Intel GPUs and
+other CPU vendors may use different label text for the same metrics, worth re-confirming if CPU or
+GPU readings are null on other hardware even with HWiNFO installed, configured, and reachable
+(distinct from "HWiNFO isn't reachable at all" - `SensorMonitor.EvaluateSensorHealth` reports these
+as two different messages for exactly this reason).
+
+**Storage stays on LHM.** HWiNFO's shared memory exposes drive temperature, remaining life %,
+available spare %, failure/warning flags, and total host writes/reads, but not Power-On Hours,
+Power-On Count, or Reallocated Sectors Count - which `SsdSmartReader.cs` already reports and which
+are already sent to the server per SSD_SMART_ADDENDUM.md. Storage was never the reliability problem
+(CPU temp/clock was), so it wasn't worth the regression to switch it too.
 
 ## Judgment calls made against CONTRACT.md (flag for reconciliation with the server side)
 
@@ -300,13 +323,16 @@ src/Luxtronic.PCTools/        WPF client app (net8.0-windows)
     ApiKeyProvider.cs          Reads the technician API key file
     LuxApiClient.cs            REST calls from CONTRACT.md §4
     TelemetryPublisher.cs      /ws/telemetry client (CONTRACT.md §5)
-    SensorMonitor.cs           LibreHardwareMonitorLib (CPU + GPU + Storage, one shared Computer -
-                                 see its class remarks for why) + WMI mobo-serial wrapper
+    SensorMonitor.cs           CPU/GPU via HwInfoSensorReader, Storage via LibreHardwareMonitorLib
+                                 (one shared Computer - see its class remarks for why) + WMI
+                                 mobo-serial wrapper - see "Known risk" above for why CPU/GPU and
+                                 Storage use different sources
     SsdSmartReader.cs          Storage/SMART attribute extraction + summary_stats/tool_output_raw
                                  builders, called by SensorMonitor.ReadSsds() and
                                  TestSessionController.SubmitSsdSmartDataAsync() - see "Current scope" above
-    HwInfoSensorReader.cs      HWiNFO64 shared-memory fallback for CPU temp/clock when LHM's own
-                                 MSR reads don't work on the hardware - see "Known risk" above
+    HwInfoSensorReader.cs      HWiNFO64 shared-memory reader - the sole CPU + GPU sensor source
+                                 (temp/load/fan/clock for CPU, full reading set for GPU) - see
+                                 "Known risk" above
     Prime95Runner.cs           Prime95 process wrapper
     TestSessionController.cs   Orchestrates one full CPU test session end-to-end, plus the
                                  per-drive SSD SMART reporting described above

@@ -110,20 +110,20 @@ function Show-Status {
         Write-Host '         (see tools\prime95\README.md - not auto-downloaded)' -ForegroundColor DarkYellow
     }
 
-    # HWiNFO is optional (CPU temp/clock fallback for hardware where LHM's own reads fail - see
-    # README "Known risk") - "not found"/"not active" are yellow, not red, unlike prime95 which is
-    # required for the CPU test to run at all.
+    # HWiNFO is the sole CPU/GPU sensor source now (see README "Known risk") - not required for
+    # the exe to launch at all (unlike prime95, still [FAIL]/red), but without it CPU/GPU sensors
+    # come up unhealthy and the CPU test gets disabled, so still worth a clear signal here.
     if (Test-Path $HwiExe) {
         Write-Host "  [OK]   HWiNFO64.exe found: $HwiExe" -ForegroundColor Green
     } else {
-        Write-Host "  [--]   HWiNFO64.exe not found at $HwiDir (optional - only needed as a CPU" -ForegroundColor DarkYellow
-        Write-Host '         temp/clock fallback on hardware where LHM''s own reads fail)' -ForegroundColor DarkYellow
+        Write-Host "  [--]   HWiNFO64.exe not found at $HwiDir - required for CPU/GPU sensors" -ForegroundColor DarkYellow
+        Write-Host '         to work at all now (no LHM fallback - see README "Known risk")' -ForegroundColor DarkYellow
     }
     if (Test-HwInfoSharedMemoryActive) {
-        Write-Host '  [OK]   HWiNFO shared memory is active right now - fallback would work if LHM''s own CPU temp/clock reads failed' -ForegroundColor Green
+        Write-Host '  [OK]   HWiNFO shared memory is active right now - CPU/GPU sensors will work' -ForegroundColor Green
     } else {
-        Write-Host '  [--]   HWiNFO shared memory not active - fallback unavailable until HWiNFO is running with' -ForegroundColor DarkYellow
-        Write-Host '         Shared Memory Support enabled (and restarted after enabling it - see HwInfoSensorReader.cs)' -ForegroundColor DarkYellow
+        Write-Host '  [--]   HWiNFO shared memory not active - CPU/GPU sensors will come up unhealthy until HWiNFO is' -ForegroundColor DarkYellow
+        Write-Host '         running with Shared Memory Support enabled (and restarted after enabling it - see HwInfoSensorReader.cs)' -ForegroundColor DarkYellow
     }
 
     if (Test-Path $ApiKeyPath) {
@@ -326,16 +326,17 @@ function Publish-SelfContained {
 
     # HWiNFO is a standalone exe the technician launches separately (not something
     # Luxtronic.PCTools.exe resolves a path to itself, unlike prime95.exe) - still copied into the
-    # published folder for convenience so the whole CPU temp/clock fallback setup travels with one
-    # folder copy, same reasoning as prime95. Optional: only needed on hardware where LHM's own
-    # reads fail, so its absence is a warning, not an error.
+    # published folder for convenience so the whole CPU/GPU sensing setup travels with one folder
+    # copy, same reasoning as prime95. It's the sole CPU/GPU sensor source now (no LHM fallback -
+    # see README "Known risk"), so its absence is a warning, not a hard [FAIL], but a meaningful
+    # one - CPU/GPU sensors won't work at all without it.
     if (Test-Path $HwiExe) {
         $publishHwiDir = Join-Path $PublishDir 'tools\hwi'
         New-Item -ItemType Directory -Force -Path $publishHwiDir | Out-Null
         Copy-Item -Path (Join-Path $HwiDir '*') -Destination $publishHwiDir -Recurse -Force
         Write-Host "Copied tools\hwi\ (including HWiNFO64.exe) into the published folder." -ForegroundColor Green
     } else {
-        Write-Host "HWiNFO64.exe not found at $HwiExe - published folder has no tools\hwi\ (optional - see README ""Known risk"")." -ForegroundColor DarkYellow
+        Write-Host "HWiNFO64.exe not found at $HwiExe - published folder has no tools\hwi\. CPU/GPU sensors won't work without it (see README ""Known risk"")." -ForegroundColor DarkYellow
     }
 
     # Launch.ps1/Launch.bat (publish-assets\) run a pre-flight check (exe/prime95/apikey/

@@ -3,66 +3,46 @@ using Xunit;
 
 namespace Luxtronic.PCTools.Tests;
 
-// Only the pure verdict+message logic is tested here. SensorMonitor.Initialize()/ReadCpu()
-// wrap a real LibreHardwareMonitorLib Computer and need real hardware - that's out of scope
-// for xUnit and is instead covered by the manual end-to-end checklist in the README.
+// Only the pure verdict+message logic is tested here. SensorMonitor.Initialize()/ReadCpu()/
+// ReadGpu() wrap real HWiNFO shared-memory/LibreHardwareMonitorLib Computer calls and need real
+// hardware - that's out of scope for xUnit and is instead covered by the manual end-to-end
+// checklist in the README.
 public class SensorMonitorTests
 {
     [Fact]
-    public void EvaluateSensorHealth_BothCountsZero_NotLoadedWithGuidanceMessage()
+    public void EvaluateSensorHealth_HwInfoNotReachable_NotLoadedWithGuidanceMessage()
     {
         var (driverLikelyLoaded, message) = SensorMonitor.EvaluateSensorHealth(
-            totalSensors: 0, cpuSensors: 0, anyTemperatureValueReadable: false);
+            hwInfoReachable: false, cpuTempReadable: false);
 
         Assert.False(driverLikelyLoaded);
-        Assert.Contains("Secure Boot", message);
-        Assert.Contains("HVCI", message);
-        Assert.Contains("Administrator", message);
+        Assert.Contains("isn't reachable", message);
+        Assert.Contains("Shared Memory Support", message);
     }
 
     [Fact]
-    public void EvaluateSensorHealth_TotalNonzeroButCpuZero_StillNotLoaded()
+    public void EvaluateSensorHealth_ReachableButNoCpuTemp_NotLoadedWithDistinctMessage()
     {
-        // Per the current "&&" logic, a nonzero total (e.g. motherboard-only sensors) with no
-        // CPU sensors still counts as the driver not being usably loaded.
+        // Real-world case this is for: HWiNFO is running and readable, but this specific CPU/
+        // HWiNFO version combination doesn't match the label set HwInfoSensorReader expects (e.g.
+        // an untested CPU vendor) - a different, more specific problem than "HWiNFO isn't running
+        // at all", so it needs its own message rather than reusing the "not reachable" one.
         var (driverLikelyLoaded, message) = SensorMonitor.EvaluateSensorHealth(
-            totalSensors: 5, cpuSensors: 0, anyTemperatureValueReadable: false);
+            hwInfoReachable: true, cpuTempReadable: false);
 
         Assert.False(driverLikelyLoaded);
-        Assert.Contains("WARNING", message);
+        Assert.DoesNotContain("isn't reachable", message);
+        Assert.Contains("no CPU temperature reading matched", message);
     }
 
     [Fact]
-    public void EvaluateSensorHealth_BothCountsNonzero_LoadedWithCounts()
+    public void EvaluateSensorHealth_ReachableAndCpuTempReadable_Loaded()
     {
         var (driverLikelyLoaded, message) = SensorMonitor.EvaluateSensorHealth(
-            totalSensors: 39, cpuSensors: 12, anyTemperatureValueReadable: true);
+            hwInfoReachable: true, cpuTempReadable: true);
 
         Assert.True(driverLikelyLoaded);
-        Assert.Contains("39", message);
-        Assert.Contains("12", message);
         Assert.Contains("Sensors OK", message);
-    }
-
-    [Fact]
-    public void EvaluateSensorHealth_CountsNonzeroButNoTemperatureReadable_NotLoadedWithBothKnownCauses()
-    {
-        // Real-world case this was added for: sensor objects exist (e.g. "CPU Package"
-        // Temperature, "CPU Core #1..6" Clock) but their Value is permanently null. Originally
-        // written assuming driver contention with another monitoring app was the likely cause;
-        // confirmed via field reports across multiple technician PCs/laptops that Secure
-        // Boot + Memory Integrity (HVCI) blocking WinRing0's MSR access specifically is actually
-        // the dominant real-world cause, so the message covers both. Load-type sensors don't need
-        // driver access, so counts alone look healthy - this must NOT be reported as "Sensors OK".
-        var (driverLikelyLoaded, message) = SensorMonitor.EvaluateSensorHealth(
-            totalSensors: 20, cpuSensors: 20, anyTemperatureValueReadable: false);
-
-        Assert.False(driverLikelyLoaded);
-        Assert.DoesNotContain("Sensors OK", message);
-        Assert.Contains("temperature readings are all null", message);
-        Assert.Contains("HVCI", message);
-        Assert.Contains("Secure Boot", message);
-        Assert.Contains("HWiNFO", message);
     }
 
     [Fact]
