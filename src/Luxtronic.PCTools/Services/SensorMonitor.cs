@@ -90,15 +90,23 @@ public sealed class SensorMonitor : IDisposable
         var cpuSensors = cpuHardware is null ? 0 : CountSensorsRecursive(cpuHardware);
 
         // Sensor *objects* existing isn't enough - LHM can enumerate "CPU Package"/"CPU Core #N"
-        // Temperature sensors while their Value stays permanently null (most commonly because
-        // another hardware-monitoring app - HWiNFO, MSI Center/Afterburner, Corsair iCUE, etc. -
-        // already has the WinRing0/Ring0 driver open exclusively). Load-type sensors don't need
-        // driver access at all, so they read fine even in that degraded state and would make the
-        // old count-only check falsely report "Sensors OK". Checking for at least one live
-        // Temperature value catches that specific failure mode.
-        var anyTemperatureValueReadable = _computer.Hardware
-            .SelectMany(EnumerateSensorsRecursive)
-            .Any(s => s.SensorType == SensorType.Temperature && s.Value.HasValue);
+        // Temperature sensors while their Value stays permanently null (another hardware-
+        // monitoring app already holding the WinRing0/Ring0 driver open exclusively, or - the
+        // pattern actually seen in the field across multiple technician PCs/laptops - Secure
+        // Boot + Memory Integrity/HVCI blocking WinRing0's MSR access specifically while other
+        // sensor types keep working). Load-type sensors don't need driver access at all, so they
+        // read fine even in that degraded state and would make the old count-only check falsely
+        // report "Sensors OK". Checking for at least one live Temperature value catches that.
+        //
+        // MUST be scoped to CPU hardware specifically, not _computer.Hardware broadly - this used
+        // to check every hardware type, which was correct back when only CPU+Motherboard sensors
+        // were enabled, but silently broke once GPU/Storage were added: a working GPU temp sensor
+        // (GPU vendor APIs like NVAPI don't need WinRing0 the way CPU MSR reads do) or a working
+        // SSD "Composite Temperature" sensor would satisfy this check and mask a completely dead
+        // CPU temperature path, reporting a false "Sensors OK" while CPU temp/clock/fan all stay
+        // null. Confirmed happening on real technician PCs/laptops before this fix.
+        var anyTemperatureValueReadable = cpuHardware is not null &&
+            EnumerateSensorsRecursive(cpuHardware).Any(s => s.SensorType == SensorType.Temperature && s.Value.HasValue);
 
         var moboSerial = TryReadMotherboardSerialViaWmi();
 
@@ -120,12 +128,14 @@ public sealed class SensorMonitor : IDisposable
     /// LibreHardwareMonitorLib Computer/IHardware instance (which need real hardware).
     ///
     /// Three distinct states, not two: (1) zero sensors enumerated at all - the WinRing0 driver
-    /// itself never loaded (Secure Boot/HVCI, no elevation); (2) sensors enumerated but no
-    /// Temperature value is actually readable - the driver loaded but something else already has
-    /// exclusive access to it (another monitoring app), so Load-type sensors work fine while
-    /// everything else silently reads null; (3) both counts nonzero AND at least one temperature
-    /// reads - genuinely healthy. Only (3) counts as DriverLikelyLoaded; (1) and (2) get distinct
-    /// messages since the fix for each is different.
+    /// itself never loaded (Secure Boot/HVCI, no elevation); (2) sensors enumerated but no CPU
+    /// Temperature value is actually readable - the driver loaded enough to enumerate sensor
+    /// objects but can't do MSR reads specifically (confirmed on real technician PCs/laptops:
+    /// Secure Boot + Memory Integrity/HVCI is the actual dominant cause here, not just driver
+    /// contention with another app - see also the caller's cpuHardware-scoping remarks), so
+    /// Load-type sensors work fine while temp/clock/fan silently read null; (3) both counts
+    /// nonzero AND at least one CPU temperature reads - genuinely healthy. Only (3) counts as
+    /// DriverLikelyLoaded; (1) and (2) get distinct messages since the fix for each is different.
     /// </summary>
     internal static (bool DriverLikelyLoaded, string Message) EvaluateSensorHealth(
         int totalSensors, int cpuSensors, bool anyTemperatureValueReadable)
@@ -141,11 +151,14 @@ public sealed class SensorMonitor : IDisposable
         else if (sensorsEnumerated)
         {
             message = $"WARNING: {totalSensors} sensor(s) were found ({cpuSensors} on CPU) but " +
-                      "temperature readings are all null. This usually means another hardware-" +
-                      "monitoring app (HWiNFO, MSI Center/Afterburner, Corsair iCUE, etc.) already " +
-                      "has the monitoring driver open exclusively - close other hardware-monitoring " +
-                      "tools and relaunch. CPU load data may still work even though temp/clock/fan " +
-                      "data will not, since load doesn't need driver access.";
+                      "CPU temperature readings are all null. Two known causes: (1) Secure Boot + " +
+                      "Memory Integrity (HVCI) is blocking the WinRing0 driver's MSR access " +
+                      "specifically, even though it loaded enough to enumerate sensors - check " +
+                      "Windows Security > Device security > Core isolation > Memory integrity; or " +
+                      "(2) another hardware-monitoring app (HWiNFO, MSI Center/Afterburner, Corsair " +
+                      "iCUE, etc.) already has the driver open exclusively - close it and relaunch. " +
+                      "CPU load data may still work even though temp/clock/fan data will not, since " +
+                      "load doesn't need driver access.";
         }
         else
         {

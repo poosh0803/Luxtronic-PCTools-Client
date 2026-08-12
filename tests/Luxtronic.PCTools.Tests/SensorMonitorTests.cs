@@ -45,19 +45,23 @@ public class SensorMonitorTests
     }
 
     [Fact]
-    public void EvaluateSensorHealth_CountsNonzeroButNoTemperatureReadable_NotLoadedWithDriverContentionMessage()
+    public void EvaluateSensorHealth_CountsNonzeroButNoTemperatureReadable_NotLoadedWithBothKnownCauses()
     {
         // Real-world case this was added for: sensor objects exist (e.g. "CPU Package"
-        // Temperature, "CPU Core #1..6" Clock) but their Value is permanently null because
-        // another hardware-monitoring app already has the WinRing0/Ring0 driver open
-        // exclusively. Load-type sensors don't need driver access, so counts alone look healthy
-        // - this must NOT be reported as "Sensors OK".
+        // Temperature, "CPU Core #1..6" Clock) but their Value is permanently null. Originally
+        // written assuming driver contention with another monitoring app was the likely cause;
+        // confirmed via field reports across multiple technician PCs/laptops that Secure
+        // Boot + Memory Integrity (HVCI) blocking WinRing0's MSR access specifically is actually
+        // the dominant real-world cause, so the message covers both. Load-type sensors don't need
+        // driver access, so counts alone look healthy - this must NOT be reported as "Sensors OK".
         var (driverLikelyLoaded, message) = SensorMonitor.EvaluateSensorHealth(
             totalSensors: 20, cpuSensors: 20, anyTemperatureValueReadable: false);
 
         Assert.False(driverLikelyLoaded);
         Assert.DoesNotContain("Sensors OK", message);
         Assert.Contains("temperature readings are all null", message);
+        Assert.Contains("HVCI", message);
+        Assert.Contains("Secure Boot", message);
         Assert.Contains("HWiNFO", message);
     }
 

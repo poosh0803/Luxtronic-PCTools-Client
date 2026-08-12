@@ -176,10 +176,20 @@ then Windows Security > Device security > Core isolation > Memory integrity.
 **What happened in this dev environment**: sensors initialized cleanly - 39 sensors found
 (CPU temps, per-core/package, load, etc.) and the motherboard serial read correctly via WMI,
 even when the app was launched *unelevated* (via `dotnet exec`, which bypasses the manifest's
-elevation prompt - see "Run (dev)" above). That's a reasonable dev-box result but is not a
-substitute for confirming this on real target hardware with Secure Boot/HVCI enabled, which is
-exactly the scenario PROJECT_PLAN.md §8 flags as needing validation on real machines, not
-assumed from a dev box.
+elevation prompt - see "Run (dev)" above).
+
+**Confirmed materializing on real technician PCs/laptops**: multiple other machines showed CPU
+temp/clock/fan all null while GPU sensors (when a GPU was present) worked fine - consistent with
+Secure Boot/HVCI blocking WinRing0's MSR access specifically while GPU vendor APIs (which don't
+need WinRing0) keep working. This uncovered a real bug the field testing is credited for finding:
+the health check's "is temperature actually readable" test was scoped to *any* hardware's
+temperature sensor, not specifically the CPU's - so once GPU/Storage sensor support was added, a
+working GPU or SSD temperature sensor silently masked a completely dead CPU temperature path,
+reporting a false green "Sensors OK" while CPU temp/clock/fan stayed null the whole time. Fixed
+by scoping the check to CPU hardware only (see `SensorMonitor.Initialize()`'s remarks on
+`anyTemperatureValueReadable`) - the WARNING message now also names Secure Boot/HVCI explicitly
+as a likely cause, not just "another monitoring app has the driver open," since that's what field
+data actually points to as the dominant real-world cause.
 
 ## Judgment calls made against CONTRACT.md (flag for reconciliation with the server side)
 
