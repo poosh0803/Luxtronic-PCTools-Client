@@ -865,9 +865,10 @@ public sealed class TestSessionController : IAsyncDisposable
     /// planning repo for the full design/rationale, written for the server side to implement
     /// matching support against). Runs after the CPU test_run has already completed, so it can't
     /// trip CONTRACT.md §6's exclusive-concurrency rule for ssd. This is a passive read, not a
-    /// benchmark - no CrystalDiskMark wrapper exists yet, so min_seq_read_mb_s/min_seq_write_mb_s
-    /// simply go unevaluated server-side (per the server's own documented convention: thresholds
-    /// with no matching summary_stats key aren't checked).
+    /// benchmark - min_seq_read_mb_s/min_seq_write_mb_s simply go unevaluated for these
+    /// particular test_runs (per the server's own documented convention: thresholds with no
+    /// matching summary_stats key aren't checked). A real DiskSpd-based throughput benchmark does
+    /// exist now (RunSsdTestSessionAsync below), just not on this passive per-CPU-run path.
     ///
     /// Best-effort: a failure here (e.g. the server doesn't support component=ssd yet) is logged
     /// but does not fail the overall CPU test session, since CPU is this pass's actual scope. This

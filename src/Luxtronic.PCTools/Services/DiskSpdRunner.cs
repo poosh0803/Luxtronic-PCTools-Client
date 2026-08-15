@@ -35,9 +35,10 @@ public sealed class DiskSpdRunResult
 }
 
 /// <summary>
-/// Benchmarks sequential read/write throughput via DiskSpd (Microsoft, MIT-licensed), the real
-/// benchmarking engine CrystalDiskMark bundles and uses internally for its own numbers
-/// (tools/CrystalDiskMark/CdmResource/DiskSpd/). CrystalDiskMark's own DiskMark64.exe has NO
+/// Benchmarks sequential read/write throughput via DiskSpd (Microsoft, MIT-licensed) - looks for
+/// the binary at tools/DiskSpd/DiskSpd64.exe. Originally dropped in as part of a full
+/// CrystalDiskMark install (DiskSpd is the real benchmarking engine CrystalDiskMark bundles and
+/// uses internally for its own numbers), but CrystalDiskMark's own DiskMark64.exe GUI has NO
 /// command-line/automation surface at all - confirmed by scanning the binary directly for
 /// autostart/silent/headless/cmdline/csv/export keywords (none exist anywhere in it). It's
 /// GUI-only, results reachable only via a "Save (text)" file-save dialog or a clipboard copy
@@ -46,7 +47,9 @@ public sealed class DiskSpdRunResult
 /// RAM/TM5 work hit (see HANDOFF.md's "elevation boundary blocks a lot of automated verification"
 /// section). DiskSpd instead has a real documented CLI and plain stdout text output, so this
 /// follows the same subprocess+parse pattern as Prime95Runner/FurMarkRunner rather than TM5's
-/// file-poll workaround.
+/// file-poll workaround - so the ~250 unused CrystalDiskMark GUI/language/theme files were
+/// trimmed, keeping only DiskSpd64.exe + its MIT license notice, moved to their own tools\DiskSpd\
+/// folder so the directory name reflects what's actually shipped/used.
 ///
 /// Reproduces CrystalDiskMark's flagship "SEQ1M Q8T1" test: 1 MiB block size, queue depth 8, 1
 /// thread, unbuffered/no-cache I/O (-Sh - disables both OS buffering and hardware write caching,
@@ -120,7 +123,7 @@ public sealed class DiskSpdRunner
         {
             throw new FileNotFoundException(
                 $"DiskSpd64.exe not found at '{ExePath}'. It should already be bundled under " +
-                "tools/CrystalDiskMark/CdmResource/DiskSpd/ - check the tools folder wasn't trimmed.", ExePath);
+                "tools/DiskSpd/ - check the tools folder wasn't trimmed.", ExePath);
         }
 
         Directory.CreateDirectory(targetFolder);

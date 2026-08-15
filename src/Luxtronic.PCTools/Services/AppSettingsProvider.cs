@@ -107,11 +107,14 @@ public sealed class AppSettingsProvider
         [JsonPropertyName("RamToolsDirectory")]
         public string RamToolsDirectory { get; set; } = "tools\\TestMem5";
 
-        /// <summary>DiskSpd (CrystalDiskMark's own bundled benchmark engine), not
-        /// tools\CrystalDiskMark itself - see DiskSpdRunner's class remarks for why DiskMark64.exe
-        /// is never invoked directly (no CLI/automation surface exists on it at all).</summary>
+        /// <summary>DiskSpd only (DiskSpd64.exe + its MIT license notice) - originally shipped
+        /// nested inside a full CrystalDiskMark install (tools\CrystalDiskMark\CdmResource\DiskSpd\),
+        /// but CrystalDiskMark's own GUI (DiskMark64.exe) is never invoked (no CLI/automation
+        /// surface exists on it at all - see DiskSpdRunner's class remarks), so the ~250 unused
+        /// GUI/language/theme files were trimmed and just DiskSpd64.exe kept, moved to its own
+        /// tools\DiskSpd\ folder so the directory name reflects what's actually used.</summary>
         [JsonPropertyName("SsdToolsDirectory")]
-        public string SsdToolsDirectory { get; set; } = "tools\\CrystalDiskMark\\CdmResource\\DiskSpd";
+        public string SsdToolsDirectory { get; set; } = "tools\\DiskSpd";
 
         [JsonPropertyName("TelemetrySampleIntervalMs")]
         public int TelemetrySampleIntervalMs { get; set; } = 500;

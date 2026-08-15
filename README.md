@@ -5,33 +5,36 @@ under test (new build QC or customer repair), technician-operated only. See
 [CLAUDE.md](CLAUDE.md), [PROJECT_PLAN.md](PROJECT_PLAN.md), and [CONTRACT.md](CONTRACT.md) for
 the full design - this README only covers building/running this client.
 
-## Current scope: CPU + GPU + RAM, standalone (not concurrent)
+## Current scope: CPU + GPU + RAM + SSD, standalone (not concurrent)
 
 Per `PROJECT_PLAN.md` §9, this started as one complete vertical slice for the CPU test only
 (Prime95), to prove the sensor-driver risk (see below) and the CONTRACT.md API/WebSocket shapes
-work end-to-end - GPU (FurMark 2) and RAM (TestMem5/TM5) have since been wired up the same way.
-**CPU, GPU, and RAM are mutually exclusive in this pass**, not CONTRACT.md §6's "together" mode
-(cpu+gpu running concurrently) - the server already fully supports that (`concurrency.js`), but
-the client doesn't attempt it yet; `TestSessionController.RunCpuTestSessionAsync`/
-`RunGpuTestSessionAsync`/`RunRamTestSessionAsync` share a single `IsRunning` guard, and
-`MainWindow`'s three checkboxes uncheck each other. For RAM specifically this isn't just a
-client-side simplification - CONTRACT.md §6 requires RAM to never run concurrently with anything
-else, a real server-enforced rule that the shared `IsRunning` guard happens to satisfy for free.
-SSD's checkbox exists in the UI but is disabled/greyed ("coming soon") - not wired to anything.
+work end-to-end - GPU (FurMark 2), RAM (TestMem5/TM5), and SSD (DiskSpd) have since been wired up
+the same way. **CPU, GPU, RAM, and SSD are mutually exclusive in this pass**, not CONTRACT.md §6's
+"together" mode (cpu+gpu running concurrently) - the server already fully supports that
+(`concurrency.js`), but the client doesn't attempt it yet; `TestSessionController.
+RunCpuTestSessionAsync`/`RunGpuTestSessionAsync`/`RunRamTestSessionAsync`/`RunSsdTestSessionAsync`
+share a single `IsRunning` guard, and `MainWindow`'s four checkboxes uncheck each other. For RAM
+and SSD specifically this isn't just a client-side simplification - CONTRACT.md §6 requires both
+to never run concurrently with anything else, a real server-enforced rule that the shared
+`IsRunning` guard happens to satisfy for free.
 
-Exceptions to the "one test at a time" scope:
+SSD is actually two independent things, not one:
 
-- `Services/SsdSmartReader.cs` (drive identity + S.M.A.R.T. health via LibreHardwareMonitorLib)
-  is wired up and reports to the server - see
-  [SSD_SMART_ADDENDUM.md](../Luxtronic-PCTools/SSD_SMART_ADDENDUM.md) in the shared planning repo
-  for the full contract (verified working end-to-end against a live server, no server-side
-  changes needed). This happens automatically after every CPU test run, regardless of the (still
-  disabled/"coming soon") SSD checkbox - `TestSessionController.SubmitSsdSmartDataAsync()`
-  submits one `component: "ssd"` test_run per detected drive, and `ssd_serials` is now populated
-  at session creation. What's still missing: CrystalDiskMark's actual throughput benchmark
-  (sequential read/write, CONTRACT.md §3's `min_seq_*_mb_s`) isn't implemented at all, and
-  there's no UI checkbox or exclusive-concurrency wiring for a technician-initiated SSD test -
-  this is SMART health reporting only, piggybacking on the CPU test session.
+- `Services/DiskSpdRunner.cs` + `TestSessionController.RunSsdTestSessionAsync` - the real,
+  technician-initiated throughput benchmark (sequential read/write, CONTRACT.md §3's
+  `min_seq_*_mb_s`). Wraps DiskSpd (`tools/DiskSpd/DiskSpd64.exe`, Microsoft/MIT-licensed) directly
+  rather than CrystalDiskMark's own GUI, which has no CLI/automation surface at all - see
+  `DiskSpdRunner`'s class remarks. Technician picks a physical drive from a combo box
+  (`Services/DriveLetterResolver.cs` maps it to a mounted drive letter via WMI), same
+  Start/Stop-button flow as CPU/GPU/RAM.
+- `Services/SsdSmartReader.cs` (drive identity + S.M.A.R.T. health via LibreHardwareMonitorLib) -
+  see [SSD_SMART_ADDENDUM.md](../Luxtronic-PCTools/SSD_SMART_ADDENDUM.md) in the shared planning
+  repo for the full contract. This one happens automatically after every CPU test run, regardless
+  of which test (if any) the technician actually selected - `TestSessionController.
+  SubmitSsdSmartDataAsync()` submits one `component: "ssd"` test_run per detected drive, and
+  `ssd_serials` is now populated at session creation. This is a separate, lower-stakes passive
+  SMART-only report, unaffected by whether a real SSD benchmark was ever run.
 - GPU sensors (temp, hot spot, core/memory clock, load, fan, power, VRAM) are always read live via
   `SensorMonitor.ReadGpu()` and shown in the UI's idle readout regardless of which test is
   selected - separate from whether a GPU *test* is actually running.

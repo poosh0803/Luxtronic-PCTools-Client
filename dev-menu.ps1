@@ -25,6 +25,12 @@ $Prime95Dir   = Join-Path $RepoRoot 'tools\prime95'
 $Prime95Exe   = Join-Path $Prime95Dir 'prime95.exe'
 $HwiDir       = Join-Path $RepoRoot 'tools\hwi'
 $HwiExe       = Join-Path $HwiDir 'HWiNFO64.exe'
+$FurMarkDir   = Join-Path $RepoRoot 'tools\FurMark_win64'
+$FurMarkExe   = Join-Path $FurMarkDir 'furmark.exe'
+$TM5Dir       = Join-Path $RepoRoot 'tools\TestMem5'
+$TM5Exe       = Join-Path $TM5Dir 'TM5.exe'
+$DiskSpdDir   = Join-Path $RepoRoot 'tools\DiskSpd'
+$DiskSpdExe   = Join-Path $DiskSpdDir 'DiskSpd64.exe'
 $ToolsDir     = Join-Path $RepoRoot 'tools'
 $PublishDir   = Join-Path $RepoRoot 'publish\win-x64'
 $PublishAssetsDir = Join-Path $RepoRoot 'publish-assets'
@@ -310,33 +316,43 @@ function Publish-SelfContained {
         Write-Host "WARNING: appsettings.json not found at $AppSettings - published folder has none." -ForegroundColor Red
     }
 
-    # tools\prime95 is resolved relative to the exe first, then by walking up parent directories
-    # as a dev-mode convenience (see README) - that walk-up only finds anything because this repo
-    # checkout is nearby. A published folder copied to another PC has no such parent repo, so
-    # prime95.exe has to ship directly inside the published folder instead.
-    if (Test-Path $Prime95Exe) {
-        $publishPrime95Dir = Join-Path $PublishDir 'tools\prime95'
-        New-Item -ItemType Directory -Force -Path $publishPrime95Dir | Out-Null
-        Copy-Item -Path (Join-Path $Prime95Dir '*') -Destination $publishPrime95Dir -Recurse -Force
-        Write-Host "Copied tools\prime95\ (including prime95.exe) into the published folder." -ForegroundColor Green
+    # Copies the ENTIRE tools\ folder wholesale, not a per-subfolder allowlist. This used to copy
+    # only tools\prime95 and tools\hwi individually, hardcoded - which meant tools\FurMark_win64,
+    # tools\TestMem5, and tools\DiskSpd (added in later sessions, wiring up GPU/RAM/SSD)
+    # were SILENTLY never copied to a published build, because nobody remembered to add a third,
+    # fourth, fifth copy block here to match. Every tool subfolder is resolved relative to the exe
+    # first, then by walking up parent directories as a dev-mode convenience (see README) - that
+    # walk-up only finds anything because this repo checkout is nearby; a published folder copied
+    # to another PC has no such parent repo, so every tool has to ship directly inside the
+    # published folder instead. Copying tools\ as one unit means a future sixth wrapper ships
+    # automatically too, with no fourth copy block to remember to add.
+    if (Test-Path $ToolsDir) {
+        $publishToolsDir = Join-Path $PublishDir 'tools'
+        New-Item -ItemType Directory -Force -Path $publishToolsDir | Out-Null
+        Copy-Item -Path (Join-Path $ToolsDir '*') -Destination $publishToolsDir -Recurse -Force
+        Write-Host "Copied tools\ (prime95, hwi, FurMark_win64, TestMem5, DiskSpd - everything under tools\) into the published folder." -ForegroundColor Green
     } else {
-        Write-Host "prime95.exe not found at $Prime95Exe - published folder has no tools\prime95\." -ForegroundColor DarkYellow
-        Write-Host "Drop prime95.exe into $PublishDir\tools\prime95\ before copying to another PC." -ForegroundColor DarkYellow
+        Write-Host "WARNING: $ToolsDir not found - published folder has no tools\ at all. Nothing will work." -ForegroundColor Red
     }
 
-    # HWiNFO is a standalone exe the technician launches separately (not something
-    # Luxtronic.PCTools.exe resolves a path to itself, unlike prime95.exe) - still copied into the
-    # published folder for convenience so the whole CPU/GPU sensing setup travels with one folder
-    # copy, same reasoning as prime95. It's the sole CPU/GPU sensor source now (no LHM fallback -
-    # see README "Known risk"), so its absence is a warning, not a hard [FAIL], but a meaningful
-    # one - CPU/GPU sensors won't work at all without it.
-    if (Test-Path $HwiExe) {
-        $publishHwiDir = Join-Path $PublishDir 'tools\hwi'
-        New-Item -ItemType Directory -Force -Path $publishHwiDir | Out-Null
-        Copy-Item -Path (Join-Path $HwiDir '*') -Destination $publishHwiDir -Recurse -Force
-        Write-Host "Copied tools\hwi\ (including HWiNFO64.exe) into the published folder." -ForegroundColor Green
-    } else {
-        Write-Host "HWiNFO64.exe not found at $HwiExe - published folder has no tools\hwi\. CPU/GPU sensors won't work without it (see README ""Known risk"")." -ForegroundColor DarkYellow
+    # Per-tool presence check AFTER the bulk copy above - same source paths, so "present in the
+    # repo" and "present in the publish output" are equivalent here. Kept as individual checks
+    # (rather than folding into the bulk-copy step) purely so a technician publishing a build gets
+    # a clear, specific "X is missing" list instead of having to go hunting through the published
+    # folder themselves to find out which test won't work.
+    $expectedTools = @(
+        @{ Name = 'prime95.exe (CPU)'; Path = $Prime95Exe },
+        @{ Name = 'HWiNFO64.exe (CPU/GPU sensors)'; Path = $HwiExe },
+        @{ Name = 'furmark.exe (GPU)'; Path = $FurMarkExe },
+        @{ Name = 'TM5.exe (RAM)'; Path = $TM5Exe },
+        @{ Name = 'DiskSpd64.exe (SSD)'; Path = $DiskSpdExe }
+    )
+    foreach ($tool in $expectedTools) {
+        if (Test-Path $tool.Path) {
+            Write-Host "  [OK]   $($tool.Name) found." -ForegroundColor Green
+        } else {
+            Write-Host "  [WARN] $($tool.Name) NOT found at $($tool.Path) - that test won't work until it's dropped in." -ForegroundColor DarkYellow
+        }
     }
 
     # Launch.ps1/Launch.bat (publish-assets\) run a pre-flight check (exe/prime95/apikey/
@@ -344,7 +360,7 @@ function Publish-SelfContained {
     # double-clicks Launch.bat on the target PC gets a clear "here's what's missing" instead of the
     # app either failing cryptically or - worse, the case that motivated adding this - coming up as
     # a blank unresponsive window with no diagnostic shown at all. Not part of dotnet publish's
-    # output, so copied in explicitly, same as tools\prime95 and tools\hwi above.
+    # output, so copied in explicitly, same as tools\ above.
     if (Test-Path $PublishAssetsDir) {
         Copy-Item -Path (Join-Path $PublishAssetsDir '*') -Destination $PublishDir -Recurse -Force
         Write-Host 'Copied Launch.ps1/Launch.bat (pre-flight check + launcher) into the published folder.' -ForegroundColor Green
@@ -361,6 +377,9 @@ function Publish-SelfContained {
     Write-Host '  - If HWiNFO was bundled: it still needs launching separately on the target PC, with' -ForegroundColor Yellow
     Write-Host '    Shared Memory Support enabled and restarted after enabling - copying the exe alone' -ForegroundColor Yellow
     Write-Host '    does not configure or start it (option 3 on this menu shows whether it''s active)' -ForegroundColor Yellow
+    Write-Host '  - prime95/FurMark/TM5/DiskSpd need no separate setup beyond being present on disk -' -ForegroundColor Yellow
+    Write-Host '    the [OK]/[WARN] list above already told you if any of those are missing from THIS' -ForegroundColor Yellow
+    Write-Host '    machine''s tools\ folder (fix that here before publishing again, not on the target PC)' -ForegroundColor Yellow
     Write-Host ''
     Write-Host 'Then copy the whole publish\win-x64 folder to the target PC and double-click' -ForegroundColor Green
     Write-Host 'Launch.bat from there - it checks prerequisites, then launches the app (which' -ForegroundColor Green

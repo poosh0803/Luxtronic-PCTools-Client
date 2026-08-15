@@ -258,7 +258,7 @@ public partial class MainWindow : Window
             AppendLog(diskSpdFound
                 ? $"DiskSpd found at {diskSpdPath}."
                 : $"DiskSpd NOT found at {diskSpdPath} - should already be bundled under " +
-                  "tools/CrystalDiskMark/CdmResource/DiskSpd/. Start will fail until then.");
+                  "tools/DiskSpd/. Start will fail until then.");
         }
 
         AppendLog($"Server: {_settings.ServerBaseUrl}");
