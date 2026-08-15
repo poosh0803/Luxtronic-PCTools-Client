@@ -93,6 +93,16 @@ function Get-CpuDurationMinutes {
     }
 }
 
+function Get-GpuDurationMinutes {
+    if (-not (Test-Path $ServerConfigPath)) { return $null }
+    try {
+        $cfg = Get-Content $ServerConfigPath -Raw | ConvertFrom-Json
+        return $cfg.gpu.duration_minutes
+    } catch {
+        return $null
+    }
+}
+
 function Show-Status {
     Write-Host 'Environment status:' -ForegroundColor Yellow
     Write-Host ''
@@ -154,6 +164,13 @@ function Show-Status {
         Write-Host "  [OK]   CPU test duration (server config) = $cpuDuration minute(s)" -ForegroundColor Green
     } else {
         Write-Host "  [--]   CPU test duration unknown - server config not found at $ServerConfigPath" -ForegroundColor DarkYellow
+    }
+
+    $gpuDuration = Get-GpuDurationMinutes
+    if ($null -ne $gpuDuration) {
+        Write-Host "  [OK]   GPU test duration (server config) = $gpuDuration minute(s)" -ForegroundColor Green
+    } else {
+        Write-Host "  [--]   GPU test duration unknown - server config not found at $ServerConfigPath" -ForegroundColor DarkYellow
     }
 
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -246,6 +263,22 @@ function Set-ServerUrl {
     Write-Host "Updated $AppSettings. Rebuild so it's copied to the output directory." -ForegroundColor Green
 }
 
+# Real gotcha hit live (2026-08-15): editing the local checkout's config/default.json has ZERO
+# effect on the actual LAN server the app talks to (ServerBaseUrl in appsettings.json, normally
+# http://192.168.68.255:7777) - that's a separately-running deployed process (pm2, service name
+# luxtronic-pctools-server) that only picks up changes via its own git pull + pm2 restart, same
+# pattern as Luxtronic-Portal/etc. A technician relaunching the app after using this menu option
+# will keep seeing the OLD duration until someone commits+pushes this repo's change and deploys it
+# (see lan-portal-deploy skill / CLAUDE.md) - this menu option alone does not do that.
+function Write-ServerConfigDeployWarning {
+    Write-Host 'IMPORTANT: this only changes YOUR LOCAL checkout. The live LAN server' -ForegroundColor Red
+    Write-Host '(usually http://192.168.68.255:7777 - check appsettings.json ServerBaseUrl) is a' -ForegroundColor Red
+    Write-Host 'separate running process that reads its OWN copy of this file - it will keep using' -ForegroundColor Red
+    Write-Host 'the old value until this change is committed, pushed, and deployed there (git pull +' -ForegroundColor Red
+    Write-Host 'pm2 restart luxtronic-pctools-server on that box). The app will show the old value' -ForegroundColor Red
+    Write-Host 'until that happens, even though this menu will show the new one.' -ForegroundColor Red
+}
+
 function Set-CpuTestDuration {
     if (-not (Test-Path $ServerConfigPath)) {
         Write-Host "Server config not found at $ServerConfigPath" -ForegroundColor Red
@@ -256,9 +289,9 @@ function Set-CpuTestDuration {
     $text = Get-Content $ServerConfigPath -Raw
     $cfg = $text | ConvertFrom-Json
     Write-Host "Current CPU test duration: $($cfg.cpu.duration_minutes) minute(s)" -ForegroundColor Yellow
-    Write-Host 'This edits config/default.json in the Server repo directly - only cpu.duration_minutes' -ForegroundColor DarkYellow
-    Write-Host 'is touched (gpu/ram/ssd are not wired up client-side yet). The server re-reads this' -ForegroundColor DarkYellow
-    Write-Host 'file from disk on every request, so no server restart is needed.' -ForegroundColor DarkYellow
+    Write-Host 'This edits config/default.json in the LOCAL Luxtronic-PCTools-Server checkout only -' -ForegroundColor DarkYellow
+    Write-Host 'only cpu.duration_minutes is touched.' -ForegroundColor DarkYellow
+    Write-ServerConfigDeployWarning
     $raw = Read-Host -Prompt 'New CPU test duration in minutes (blank to cancel)'
     if ([string]::IsNullOrWhiteSpace($raw)) {
         Write-Host 'Cancelled.' -ForegroundColor DarkYellow
@@ -282,6 +315,45 @@ function Set-CpuTestDuration {
     $newText = $text -replace $pattern, "`${1}$minutes"
     Set-Content -Path $ServerConfigPath -Value $newText -NoNewline -Encoding utf8
     Write-Host "Set CPU test duration to $minutes minute(s) in $ServerConfigPath." -ForegroundColor Green
+}
+
+# Same shape as Set-CpuTestDuration, for gpu.duration_minutes instead of cpu.duration_minutes -
+# not folded into one shared function, matching the rest of this codebase's preference for
+# explicit per-component duplication (see TestSessionController's RunCpuTestSessionAsync/
+# RunGpuTestSessionAsync/etc.) over a generic "component name" parameter for a handful of lines.
+function Set-GpuTestDuration {
+    if (-not (Test-Path $ServerConfigPath)) {
+        Write-Host "Server config not found at $ServerConfigPath" -ForegroundColor Red
+        Write-Host 'Expected Luxtronic-PCTools-Server checked out as a sibling directory next to this repo.' -ForegroundColor DarkYellow
+        return
+    }
+
+    $text = Get-Content $ServerConfigPath -Raw
+    $cfg = $text | ConvertFrom-Json
+    Write-Host "Current GPU test duration: $($cfg.gpu.duration_minutes) minute(s)" -ForegroundColor Yellow
+    Write-Host 'This edits config/default.json in the LOCAL Luxtronic-PCTools-Server checkout only -' -ForegroundColor DarkYellow
+    Write-Host 'only gpu.duration_minutes is touched.' -ForegroundColor DarkYellow
+    Write-ServerConfigDeployWarning
+    $raw = Read-Host -Prompt 'New GPU test duration in minutes (blank to cancel)'
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        Write-Host 'Cancelled.' -ForegroundColor DarkYellow
+        return
+    }
+
+    $minutes = 0
+    if (-not [int]::TryParse($raw, [ref]$minutes) -or $minutes -le 0) {
+        Write-Host 'Enter a positive whole number of minutes.' -ForegroundColor Red
+        return
+    }
+
+    $pattern = '("gpu"\s*:\s*\{[^{}]*"duration_minutes"\s*:\s*)\d+'
+    if ($text -notmatch $pattern) {
+        Write-Host 'Could not find gpu.duration_minutes in the expected shape - leaving the file untouched.' -ForegroundColor Red
+        return
+    }
+    $newText = $text -replace $pattern, "`${1}$minutes"
+    Set-Content -Path $ServerConfigPath -Value $newText -NoNewline -Encoding utf8
+    Write-Host "Set GPU test duration to $minutes minute(s) in $ServerConfigPath." -ForegroundColor Green
 }
 
 function Publish-SelfContained {
@@ -406,9 +478,10 @@ while ($running) {
     Write-Host '  6) Set/update technician API key'
     Write-Host '  7) Set server URL'
     Write-Host '  8) Set CPU test duration (server config)'
-    Write-Host '  9) Open tools folder (prime95, hwi)'
-    Write-Host '  10) Publish self-contained build (for PCs without .NET installed)'
-    Write-Host '  11) Exit'
+    Write-Host '  9) Set GPU test duration (server config)'
+    Write-Host '  10) Open tools folder (prime95, hwi, FurMark, TestMem5, DiskSpd)'
+    Write-Host '  11) Publish self-contained build (for PCs without .NET installed)'
+    Write-Host '  12) Exit'
     Write-Host ''
 
     $choice = Read-Host -Prompt 'Choice'
@@ -423,9 +496,10 @@ while ($running) {
         '6' { Set-ApiKey }
         '7' { Set-ServerUrl }
         '8' { Set-CpuTestDuration }
-        '9' { Open-ToolsFolder }
-        '10' { Publish-SelfContained }
-        '11' { $running = $false }
+        '9' { Set-GpuTestDuration }
+        '10' { Open-ToolsFolder }
+        '11' { Publish-SelfContained }
+        '12' { $running = $false }
         default { Write-Host 'Not a valid choice.' -ForegroundColor Red }
     }
 
