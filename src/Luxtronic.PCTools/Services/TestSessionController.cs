@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using Luxtronic.PCTools.Models;
 
 namespace Luxtronic.PCTools.Services;
@@ -8,18 +9,19 @@ namespace Luxtronic.PCTools.Services;
 public sealed record RamTestProgress(double? TestedMb, int ErrorCount);
 
 /// <summary>
-/// Orchestrates one full CPU, GPU, or RAM test session end to end: fetch config -> create session
-/// -> start test run -> connect telemetry -> run Prime95/FurMark/TM5 while streaming sensor
-/// samples -> complete test run -> end session. RunCpuTestSessionAsync/RunGpuTestSessionAsync/
-/// RunRamTestSessionAsync are standalone and mutually exclusive (share the same
-/// <see cref="IsRunning"/> guard) - not CONTRACT.md §6's "together" mode (cpu+gpu running
-/// concurrently), which the server already supports (concurrency.js) but this client doesn't
-/// attempt yet; that would need reworking this class's single-run-at-a-time design and the UI's
-/// single Start/Stop button pair. For RAM specifically, sharing IsRunning isn't just a
-/// simplification - CONTRACT.md §6 requires RAM to reject if ANY other test_run is active, so this
-/// already-existing guard is what makes that real server-enforced rule hold client-side too. SSD
-/// orchestration (beyond the passive SubmitSsdSmartDataAsync below) is intentionally not built
-/// here.
+/// Orchestrates one full CPU, GPU, RAM, or SSD test session end to end: fetch config -> create
+/// session -> start test run -> (CPU/GPU/RAM: connect telemetry) -> run
+/// Prime95/FurMark/TM5/DiskSpd -> complete test run -> end session.
+/// RunCpuTestSessionAsync/RunGpuTestSessionAsync/RunRamTestSessionAsync/RunSsdTestSessionAsync are
+/// standalone and mutually exclusive (share the same <see cref="IsRunning"/> guard) - not
+/// CONTRACT.md §6's "together" mode (cpu+gpu running concurrently), which the server already
+/// supports (concurrency.js) but this client doesn't attempt yet; that would need reworking this
+/// class's single-run-at-a-time design and the UI's single Start/Stop button pair. For RAM and SSD
+/// specifically, sharing IsRunning isn't just a simplification - CONTRACT.md §6 requires both to
+/// reject if ANY other test_run is active, so this already-existing guard is what makes that real
+/// server-enforced rule hold client-side too. Separately, SubmitSsdSmartDataAsync below is a
+/// distinct, lower-stakes passive SMART-only report that runs automatically after every CPU test
+/// (unaffected by this class's SSD benchmark addition).
 ///
 /// Scope simplification (judgment call, flagged for reconciliation): this pass treats
 /// "one session = one test run" and ends the session automatically right after the test
@@ -36,6 +38,7 @@ public sealed class TestSessionController : IAsyncDisposable
     private readonly Prime95Runner _prime95;
     private readonly FurMarkRunner _furmark;
     private readonly TM5Runner _tm5;
+    private readonly DiskSpdRunner _diskSpd;
     private readonly AppSettingsProvider _settings;
     private readonly ApiKeyProvider _apiKey;
 
@@ -54,7 +57,7 @@ public sealed class TestSessionController : IAsyncDisposable
 
     public TestSessionController(
         AppSettingsProvider settings, ApiKeyProvider apiKey, SensorMonitor sensors,
-        Prime95Runner prime95, FurMarkRunner furmark, TM5Runner tm5)
+        Prime95Runner prime95, FurMarkRunner furmark, TM5Runner tm5, DiskSpdRunner diskSpd)
     {
         _settings = settings;
         _apiKey = apiKey;
@@ -62,6 +65,7 @@ public sealed class TestSessionController : IAsyncDisposable
         _prime95 = prime95;
         _furmark = furmark;
         _tm5 = tm5;
+        _diskSpd = diskSpd;
         _api = new LuxApiClient(settings.ServerBaseUrl, apiKey.Key);
     }
 
@@ -669,6 +673,173 @@ public sealed class TestSessionController : IAsyncDisposable
     }
 
     /// <summary>
+    /// SSD equivalent of RunCpuTestSessionAsync/RunGpuTestSessionAsync/RunRamTestSessionAsync -
+    /// own session, own test_run (component=ssd), shares <see cref="IsRunning"/> the same way
+    /// (CONTRACT.md §6 requires ssd to reject if ANY other test_run is active, same real
+    /// server-enforced rule RAM relies on this guard for).
+    ///
+    /// Structurally simpler than the other three: DiskSpdRunner's benchmark is a short (~20s
+    /// total), one-shot subprocess call with no natural continuous stream to poll, unlike CPU/GPU's
+    /// sensor telemetry or RAM's Log.txt tailing - so this doesn't open a telemetry WebSocket at
+    /// all, matching the existing (passive, telemetry-free) SubmitSsdSmartDataAsync below. After
+    /// the benchmark completes, this re-reads SMART for <paramref name="targetDrive"/> specifically
+    /// (fresh temperatures post-load are more meaningful than the picker-time snapshot) and merges
+    /// it with the throughput numbers into ONE test_run submission, rather than the two separate
+    /// start+complete calls SubmitSsdSmartDataAsync uses for its passive per-drive loop - this flow
+    /// already knows exactly which physical drive was tested (the technician picked it), so there's
+    /// no "one row per drive" ambiguity to resolve here.
+    /// </summary>
+    /// <param name="targetDrive">Which physical drive the technician selected in the picker -
+    /// used to re-match a fresh SsdSmartReader.ReadAll() snapshot after the benchmark by serial
+    /// number; falls back to the originally-passed snapshot if the drive can't be re-found (e.g.
+    /// external drive unplugged mid-run).</param>
+    /// <param name="targetFolder">Filesystem folder (never a raw device) DiskSpdRunner writes its
+    /// scratch test file into - see DiskSpdRunner's class remarks on why this must be a real path,
+    /// not a physical drive index.</param>
+    /// <param name="uiLifetime">Cancelled only if the app is shutting down - see the identical
+    /// remark on RunCpuTestSessionAsync.</param>
+    public async Task RunSsdTestSessionAsync(
+        CreateSessionRequest sessionInfo, SsdSmartInfo targetDrive, string targetFolder, Action<string> onLog,
+        CancellationToken uiLifetime = default)
+    {
+        if (IsRunning)
+        {
+            throw new InvalidOperationException("A test session is already running.");
+        }
+
+        IsRunning = true;
+        _stopCts = new CancellationTokenSource();
+        _stopWasSensorFailure = false;
+
+        string? sessionId = null;
+        string? testRunId = null;
+
+        try
+        {
+            onLog("Fetching server config (GET /api/config)...");
+            var config = await _api.GetConfigAsync(uiLifetime).ConfigureAwait(false);
+            _ = config.Ssd ?? throw new InvalidOperationException(
+                "Server config response had no 'ssd' subtree - check CONTRACT.md §3 shape matches.");
+
+            onLog("Creating session (POST /api/sessions)...");
+            sessionId = await _api.CreateSessionAsync(sessionInfo, uiLifetime).ConfigureAwait(false);
+            onLog($"Session created: {sessionId}");
+
+            onLog("Starting SSD test run (POST .../test-runs)...");
+            testRunId = await _api.StartTestRunAsync(sessionId, Component.Ssd, uiLifetime).ConfigureAwait(false);
+            onLog($"Test run started: {testRunId}");
+
+            var runResult = await _diskSpd.RunAsync(targetFolder, _stopCts.Token, onLog, uiLifetime).ConfigureAwait(false);
+
+            var effectiveStopReason = runResult.StopReason;
+            if (runResult.WasExternallyStopped)
+            {
+                effectiveStopReason = Models.StopReason.UserAbort; // no sensor-poll loop here, so no client_error path to weigh against
+            }
+
+            var freshDrive = TryReadFreshDrive(targetDrive, onLog);
+            var smartStats = SsdSmartReader.BuildSummaryStats(freshDrive);
+            var summary = BuildSsdSummaryStats(smartStats, runResult.SeqReadMbS, runResult.SeqWriteMbS, runResult.ErrorCount);
+            var rawOutput = runResult.RawOutput + Environment.NewLine + "--- SMART snapshot ---" + Environment.NewLine +
+                             SsdSmartReader.FormatToolOutputRaw(freshDrive);
+
+            onLog("Completing test run (PATCH .../test-runs/:id)...");
+            await _api.CompleteTestRunAsync(sessionId, testRunId, new CompleteTestRunRequest
+            {
+                ToolExitCode = runResult.ExitCode,
+                ToolOutputRaw = Truncate(rawOutput, 200_000),
+                SummaryStats = summary,
+                StopReason = effectiveStopReason,
+            }, uiLifetime).ConfigureAwait(false);
+            onLog("Test run completion recorded on the server.");
+        }
+        catch (Exception ex)
+        {
+            onLog($"ERROR: {ex.Message}");
+
+            if (sessionId is not null && testRunId is not null)
+            {
+                try
+                {
+                    await _api.CompleteTestRunAsync(sessionId, testRunId, new CompleteTestRunRequest
+                    {
+                        ToolExitCode = null,
+                        ToolOutputRaw = ex.ToString(),
+                        SummaryStats = new Dictionary<string, object>(),
+                        StopReason = Models.StopReason.ClientError,
+                    }, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Nothing more we can do client-side - session-end auto-close will catch it.
+                }
+            }
+
+            throw;
+        }
+        finally
+        {
+            if (sessionId is not null)
+            {
+                try
+                {
+                    onLog("Ending session (PATCH /api/sessions/:id)...");
+                    await _api.EndSessionAsync(sessionId, CancellationToken.None).ConfigureAwait(false);
+                    onLog("Session ended.");
+                }
+                catch (Exception ex)
+                {
+                    onLog($"Warning: failed to end session cleanly: {ex.Message}");
+                }
+            }
+
+            IsRunning = false;
+            _stopCts?.Dispose();
+            _stopCts = null;
+        }
+    }
+
+    /// <summary>Best-effort re-read of <paramref name="originalDrive"/>'s current SMART snapshot
+    /// (post-benchmark temperatures are more meaningful than the picker-time reading), matched by
+    /// serial number against a fresh SensorMonitor.ReadSsds() call. Falls back to the original
+    /// snapshot - not a thrown exception - if the drive can't be re-found or the re-read itself
+    /// fails, since a stale-but-present SMART reading is more useful to the server than none at
+    /// all (same "log what's available" philosophy as PROJECT_PLAN.md §8).</summary>
+    private SsdSmartInfo TryReadFreshDrive(SsdSmartInfo originalDrive, Action<string> onLog)
+    {
+        try
+        {
+            var fresh = _sensors.ReadSsds();
+            var match = originalDrive.SerialNumber is null
+                ? null
+                : fresh.FirstOrDefault(d => d.SerialNumber == originalDrive.SerialNumber);
+            return match ?? originalDrive;
+        }
+        catch (Exception ex)
+        {
+            onLog($"WARNING: could not re-read SMART data after SSD benchmark, using pre-test snapshot: {ex.Message}");
+            return originalDrive;
+        }
+    }
+
+    /// <summary>Merges DiskSpdRunner's throughput numbers into SsdSmartReader's SMART
+    /// summary_stats (CONTRACT.md §2/§7), split out so it's unit testable without real hardware.
+    /// Overwrites the SMART dict's own always-0 "error_count" with <paramref name="errorCount"/>
+    /// (DiskSpdRunner's own, also always 0 in practice - see DiskSpdRunResult.ErrorCount's
+    /// remarks) rather than summing/duplicating the key. min_seq_read_mb_s/min_seq_write_mb_s use
+    /// the exact key names CONTRACT.md's ssd config thresholds them against, same "same key name
+    /// as the threshold it's compared against" convention as max_temp_c elsewhere - present only
+    /// when DiskSpdRunner actually parsed a value (e.g. absent if a pass was stopped early).</summary>
+    internal static Dictionary<string, object> BuildSsdSummaryStats(
+        IReadOnlyDictionary<string, object> smartStats, double? seqReadMbS, double? seqWriteMbS, int errorCount)
+    {
+        var summary = new Dictionary<string, object>(smartStats) { ["error_count"] = errorCount };
+        if (seqReadMbS is double r) summary["min_seq_read_mb_s"] = r;
+        if (seqWriteMbS is double w) summary["min_seq_write_mb_s"] = w;
+        return summary;
+    }
+
+    /// <summary>
     /// Pure parser for TM5's Log.txt, split out so it's unit testable without a real running TM5.
     /// Reuses TM5Runner.CountErrors against the whole file content each poll (files here are small
     /// - a handful of lines per session - so re-scanning from scratch each cycle rather than
@@ -699,7 +870,10 @@ public sealed class TestSessionController : IAsyncDisposable
     /// with no matching summary_stats key aren't checked).
     ///
     /// Best-effort: a failure here (e.g. the server doesn't support component=ssd yet) is logged
-    /// but does not fail the overall CPU test session, since CPU is this pass's actual scope.
+    /// but does not fail the overall CPU test session, since CPU is this pass's actual scope. This
+    /// is a passive read, not a benchmark - min_seq_read_mb_s/min_seq_write_mb_s still go
+    /// unevaluated for these particular test_runs (only RunSsdTestSessionAsync's dedicated,
+    /// technician-initiated SSD test populates those two keys).
     /// </summary>
     private async Task SubmitSsdSmartDataAsync(string sessionId, Action<string> onLog, CancellationToken ct)
     {

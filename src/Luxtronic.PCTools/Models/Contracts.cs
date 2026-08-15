@@ -33,11 +33,8 @@ public static class StopReason
 
 // ---- GET /api/config (CONTRACT.md §3) ----------------------------------------------------
 
-/// <summary>
-/// Mirrors the server config JSON (CONTRACT.md §3). Only "cpu", "gpu", "ram", and "concurrency"
-/// are modeled since ssd's wrapper isn't built this pass; System.Text.Json ignores the unmodeled
-/// subtree on deserialize, so fetching the full config document still works fine.
-/// </summary>
+/// <summary>Mirrors the server config JSON (CONTRACT.md §3) - "cpu", "gpu", "ram", "ssd", and
+/// "concurrency" are all modeled.</summary>
 public sealed class ServerConfig
 {
     [JsonPropertyName("cpu")]
@@ -48,6 +45,9 @@ public sealed class ServerConfig
 
     [JsonPropertyName("ram")]
     public RamConfig? Ram { get; set; }
+
+    [JsonPropertyName("ssd")]
+    public SsdConfig? Ssd { get; set; }
 
     [JsonPropertyName("concurrency")]
     public ConcurrencyConfig? Concurrency { get; set; }
@@ -102,6 +102,58 @@ public sealed class RamConfig
 
     [JsonPropertyName("max_errors")]
     public int MaxErrors { get; set; } = 0;
+}
+
+/// <summary>
+/// No duration_minutes field, unlike Cpu/Gpu/Ram - CONTRACT.md §3's ssd subtree has no
+/// duration/test-size concept at all (min_seq_read_mb_s/min_seq_write_mb_s are throughput
+/// thresholds, not a run length). DiskSpdRunner's test file size and per-direction duration are
+/// hardcoded client-side instead of server-configured - a deliberate scope decision (touching the
+/// frozen CONTRACT.md to add fields wasn't warranted for a first pass) - see DiskSpdRunner's class
+/// remarks.
+///
+/// Five SMART fields, not one - matches the server's ACTUAL config/default.json shape (confirmed
+/// by reading Luxtronic-PCTools-Server directly), not this doc's older example. An earlier version
+/// of this contract used a single `smart_reallocated_sectors_max` field ("max" as a suffix); the
+/// server's own resultComputation.js only treats a config key as a threshold if it *starts with*
+/// `max_`/`min_`, so that field silently never evaluated, ever - already fixed server-side (and in
+/// SsdSmartReader.BuildSummaryStats, which already emits the correct key names below) before this
+/// class existed. CONTRACT.md here and in the shared planning repo were still showing the stale
+/// shape until this was caught while wiring up the DiskSpd benchmark - now synced to match the
+/// server. None of these five are actually read by client code (the server is the only place
+/// that evaluates thresholds, by design) - modeled here purely for parity with CpuConfig/
+/// GpuConfig/RamConfig's "fully mirror the contract subtree" convention.
+/// </summary>
+public sealed class SsdConfig
+{
+    [JsonPropertyName("tool")]
+    public string Tool { get; set; } = "crystaldiskmark";
+
+    [JsonPropertyName("min_seq_read_mb_s")]
+    public double MinSeqReadMbS { get; set; } = 400;
+
+    [JsonPropertyName("min_seq_write_mb_s")]
+    public double MinSeqWriteMbS { get; set; } = 300;
+
+    /// <summary>Both bus types.</summary>
+    [JsonPropertyName("max_smart_temp_c")]
+    public double MaxSmartTempC { get; set; } = 70;
+
+    /// <summary>ATA/SATA drives only.</summary>
+    [JsonPropertyName("max_smart_reallocated_sectors")]
+    public int MaxSmartReallocatedSectors { get; set; } = 0;
+
+    /// <summary>NVMe drives only.</summary>
+    [JsonPropertyName("max_smart_percentage_used")]
+    public int MaxSmartPercentageUsed { get; set; } = 90;
+
+    /// <summary>NVMe drives only.</summary>
+    [JsonPropertyName("min_smart_available_spare_percent")]
+    public int MinSmartAvailableSparePercent { get; set; } = 10;
+
+    /// <summary>NVMe drives only.</summary>
+    [JsonPropertyName("max_smart_media_errors")]
+    public int MaxSmartMediaErrors { get; set; } = 0;
 }
 
 public sealed class ConcurrencyConfig

@@ -236,6 +236,31 @@ public class ContractsSerializationTests
     }
 
     [Fact]
+    public void SsdConfig_JsonPropertyNames_MatchContract()
+    {
+        var ssdConfig = new SsdConfig
+        {
+            Tool = "crystaldiskmark",
+            MinSeqReadMbS = 400,
+            MinSeqWriteMbS = 300,
+            MaxSmartTempC = 70,
+            MaxSmartReallocatedSectors = 0,
+            MaxSmartPercentageUsed = 90,
+            MinSmartAvailableSparePercent = 10,
+            MaxSmartMediaErrors = 0,
+        };
+
+        Assert.Equal(
+            new HashSet<string>
+            {
+                "tool", "min_seq_read_mb_s", "min_seq_write_mb_s", "max_smart_temp_c",
+                "max_smart_reallocated_sectors", "max_smart_percentage_used",
+                "min_smart_available_spare_percent", "max_smart_media_errors",
+            },
+            PropertyNames(ssdConfig));
+    }
+
+    [Fact]
     public void ConcurrencyConfig_JsonPropertyNames_MatchContract()
     {
         var concurrencyConfig = new ConcurrencyConfig
@@ -257,25 +282,24 @@ public class ContractsSerializationTests
             Cpu = new CpuConfig(),
             Gpu = new GpuConfig(),
             Ram = new RamConfig(),
+            Ssd = new SsdConfig(),
             Concurrency = new ConcurrencyConfig(),
         };
 
-        Assert.Equal(new HashSet<string> { "cpu", "gpu", "ram", "concurrency" }, PropertyNames(serverConfig));
+        Assert.Equal(new HashSet<string> { "cpu", "gpu", "ram", "ssd", "concurrency" }, PropertyNames(serverConfig));
     }
 
     [Fact]
-    public void ServerConfig_DeserializesFullContractExample_IgnoringUnmodeledSubtrees()
+    public void ServerConfig_DeserializesFullContractExample()
     {
-        // The full CONTRACT.md §3 example. ssd's subtree is deliberately not modeled yet (comment
-        // in Contracts.cs explains why) - this confirms deserialization tolerates that unmodeled
-        // subtree rather than throwing, and that the modeled cpu/gpu/ram/concurrency subtrees all
-        // come through correctly.
+        // The full CONTRACT.md §3 example - confirms all five subtrees (cpu/gpu/ram/ssd/
+        // concurrency) deserialize correctly.
         const string json = """
         {
           "cpu": { "tool": "prime95", "mode": "blend", "duration_minutes": 60, "max_temp_c": 95 },
           "gpu": { "tool": "furmark", "duration_minutes": 20, "max_temp_c": 90 },
           "ram": { "tool": "tm5", "config_profile": "anta777-extreme", "duration_minutes": 60, "max_errors": 0 },
-          "ssd": { "tool": "crystaldiskmark", "min_seq_read_mb_s": 400, "min_seq_write_mb_s": 300, "smart_reallocated_sectors_max": 0 },
+          "ssd": { "tool": "crystaldiskmark", "min_seq_read_mb_s": 400, "min_seq_write_mb_s": 300, "max_smart_temp_c": 70, "max_smart_reallocated_sectors": 0, "max_smart_percentage_used": 90, "min_smart_available_spare_percent": 10, "max_smart_media_errors": 0 },
           "concurrency": { "cpu_gpu_together_allowed": true, "exclusive_components": ["ram", "ssd"] }
         }
         """;
@@ -298,6 +322,16 @@ public class ContractsSerializationTests
         Assert.Equal("anta777-extreme", config.Ram.ConfigProfile);
         Assert.Equal(60, config.Ram.DurationMinutes);
         Assert.Equal(0, config.Ram.MaxErrors);
+
+        Assert.NotNull(config.Ssd);
+        Assert.Equal("crystaldiskmark", config.Ssd!.Tool);
+        Assert.Equal(400, config.Ssd.MinSeqReadMbS);
+        Assert.Equal(300, config.Ssd.MinSeqWriteMbS);
+        Assert.Equal(70, config.Ssd.MaxSmartTempC);
+        Assert.Equal(0, config.Ssd.MaxSmartReallocatedSectors);
+        Assert.Equal(90, config.Ssd.MaxSmartPercentageUsed);
+        Assert.Equal(10, config.Ssd.MinSmartAvailableSparePercent);
+        Assert.Equal(0, config.Ssd.MaxSmartMediaErrors);
 
         Assert.NotNull(config.Concurrency);
         Assert.True(config.Concurrency!.CpuGpuTogetherAllowed);

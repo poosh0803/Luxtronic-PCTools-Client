@@ -17,6 +17,7 @@ public sealed class AppSettingsProvider
     public string ToolsDirectory { get; }
     public string GpuToolsDirectory { get; }
     public string RamToolsDirectory { get; }
+    public string SsdToolsDirectory { get; }
     public int TelemetrySampleIntervalMs { get; }
 
     private AppSettingsProvider(RawSettings raw, string baseDir)
@@ -26,6 +27,7 @@ public sealed class AppSettingsProvider
         ToolsDirectory = ResolveToolsDirectory(baseDir, raw.ToolsDirectory);
         GpuToolsDirectory = ResolveToolsDirectory(baseDir, raw.GpuToolsDirectory);
         RamToolsDirectory = ResolveToolsDirectory(baseDir, raw.RamToolsDirectory);
+        SsdToolsDirectory = ResolveToolsDirectory(baseDir, raw.SsdToolsDirectory);
         TelemetrySampleIntervalMs = raw.TelemetrySampleIntervalMs > 0 ? raw.TelemetrySampleIntervalMs : 500;
     }
 
@@ -104,6 +106,12 @@ public sealed class AppSettingsProvider
 
         [JsonPropertyName("RamToolsDirectory")]
         public string RamToolsDirectory { get; set; } = "tools\\TestMem5";
+
+        /// <summary>DiskSpd (CrystalDiskMark's own bundled benchmark engine), not
+        /// tools\CrystalDiskMark itself - see DiskSpdRunner's class remarks for why DiskMark64.exe
+        /// is never invoked directly (no CLI/automation surface exists on it at all).</summary>
+        [JsonPropertyName("SsdToolsDirectory")]
+        public string SsdToolsDirectory { get; set; } = "tools\\CrystalDiskMark\\CdmResource\\DiskSpd";
 
         [JsonPropertyName("TelemetrySampleIntervalMs")]
         public int TelemetrySampleIntervalMs { get; set; } = 500;

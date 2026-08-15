@@ -95,9 +95,13 @@ A JSON file on the server (v1 — no admin UI, per plan). Client fetches the rel
   },
   "ssd": {
     "tool": "crystaldiskmark",
-    "min_seq_read_mb_s": 400,
-    "min_seq_write_mb_s": 300,
-    "smart_reallocated_sectors_max": 0
+    "min_seq_read_mb_s": 400,          // CrystalDiskMark benchmark
+    "min_seq_write_mb_s": 300,         // CrystalDiskMark benchmark
+    "max_smart_temp_c": 70,            // SMART, both bus types
+    "max_smart_reallocated_sectors": 0,        // SMART, ATA/SATA drives only
+    "max_smart_percentage_used": 90,           // SMART, NVMe drives only
+    "min_smart_available_spare_percent": 10,   // SMART, NVMe drives only
+    "max_smart_media_errors": 0                // SMART, NVMe drives only
   },
   "concurrency": {
     "cpu_gpu_together_allowed": true,
@@ -105,6 +109,8 @@ A JSON file on the server (v1 — no admin UI, per plan). Client fetches the rel
   }
 }
 ```
+
+**SSD SMART fields are bus-type-specific, not universal.** ATA/SATA and NVMe drives expose entirely different SMART data under the *same* attribute IDs (ATA attribute 5 = "Reallocated Sectors Count", NVMe attribute 5 = "Percentage Used" — unrelated metrics, same number). A single drive is only ever one bus type, so the client should only populate whichever `summary_stats` keys apply to the drive under test — per §7, a config threshold with no matching `summary_stats` key is simply skipped, which is what makes it safe to list both bus types' thresholds here at once. This replaces an earlier version of this config (`smart_reallocated_sectors_max`, "max" as a *suffix*) that had a naming bug in the server's threshold-matching implementation making it silently never evaluate, ever — every threshold key here must *start with* `max_`/`min_` for the server to pick it up (see `resultComputation.js` for the exact matching rule).
 
 ## 4. REST endpoints
 

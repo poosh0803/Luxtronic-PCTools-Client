@@ -182,10 +182,12 @@ public static class SsdSmartReader
     /// CPU's max_temp_c. NVMe-only and ATA-only keys are only included when
     /// <see cref="SsdSmartInfo.IsNvme"/> makes them meaningful - see class remarks. error_count is
     /// always 0: this reports a passive SMART snapshot, not a benchmark run, so there's no
-    /// destructive-test error count to report (min_seq_read_mb_s/min_seq_write_mb_s have no
-    /// summary_stats key yet either, since CrystalDiskMark isn't wrapped client-side - those
-    /// thresholds simply won't be evaluated until it is, per the server's own documented
-    /// convention that missing keys aren't evaluated).
+    /// destructive-test error count to report. min_seq_read_mb_s/min_seq_write_mb_s are never set
+    /// here either - this function backs the passive per-CPU-run SMART report
+    /// (TestSessionController.SubmitSsdSmartDataAsync), which has no throughput data; those two
+    /// keys are only populated by the dedicated SSD benchmark test_run
+    /// (TestSessionController.RunSsdTestSessionAsync / DiskSpdRunner), per the server's own
+    /// documented convention that missing keys aren't evaluated.
     /// </summary>
     internal static Dictionary<string, object> BuildSummaryStats(SsdSmartInfo info)
     {

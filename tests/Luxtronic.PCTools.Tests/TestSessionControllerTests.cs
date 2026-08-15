@@ -123,6 +123,78 @@ public class TestSessionControllerTests
         Assert.Equal(5, summary["error_count"]);
     }
 
+    // ---- BuildSsdSummaryStats -------------------------------------------------------------------
+    // Merges DiskSpdRunner's throughput numbers into SsdSmartReader's SMART dict - unlike
+    // BuildSummaryStats/BuildGpuSummaryStats/BuildRamSummaryStats, this one also has to prove the
+    // merge itself (SMART keys preserved, error_count overwritten not duplicated).
+
+    [Fact]
+    public void BuildSsdSummaryStats_PreservesExistingSmartKeys()
+    {
+        var smartStats = new Dictionary<string, object> { ["error_count"] = 0, ["max_smart_temp_c"] = 45.0 };
+
+        var summary = TestSessionController.BuildSsdSummaryStats(smartStats, seqReadMbS: null, seqWriteMbS: null, errorCount: 0);
+
+        Assert.Equal(45.0, summary["max_smart_temp_c"]);
+    }
+
+    [Fact]
+    public void BuildSsdSummaryStats_AddsReadAndWriteWhenBothObserved()
+    {
+        var smartStats = new Dictionary<string, object> { ["error_count"] = 0 };
+
+        var summary = TestSessionController.BuildSsdSummaryStats(smartStats, seqReadMbS: 2104.65, seqWriteMbS: 68.2, errorCount: 0);
+
+        Assert.Equal(2104.65, summary["min_seq_read_mb_s"]);
+        Assert.Equal(68.2, summary["min_seq_write_mb_s"]);
+    }
+
+    [Fact]
+    public void BuildSsdSummaryStats_ReadAbsent_WhenNullPassed()
+    {
+        var smartStats = new Dictionary<string, object> { ["error_count"] = 0 };
+
+        var summary = TestSessionController.BuildSsdSummaryStats(smartStats, seqReadMbS: null, seqWriteMbS: 68.2, errorCount: 0);
+
+        Assert.False(summary.ContainsKey("min_seq_read_mb_s"));
+        Assert.True(summary.ContainsKey("min_seq_write_mb_s"));
+    }
+
+    [Fact]
+    public void BuildSsdSummaryStats_WriteAbsent_WhenNullPassed()
+    {
+        var smartStats = new Dictionary<string, object> { ["error_count"] = 0 };
+
+        var summary = TestSessionController.BuildSsdSummaryStats(smartStats, seqReadMbS: 2104.65, seqWriteMbS: null, errorCount: 0);
+
+        Assert.True(summary.ContainsKey("min_seq_read_mb_s"));
+        Assert.False(summary.ContainsKey("min_seq_write_mb_s"));
+    }
+
+    [Fact]
+    public void BuildSsdSummaryStats_ErrorCountOverwritesSmartDictsOwnValue_NotDuplicated()
+    {
+        // SsdSmartReader.BuildSummaryStats always reports error_count=0 for a passive SMART read;
+        // this proves DiskSpdRunner's own error_count (also normally 0, but passed explicitly)
+        // replaces rather than sums with it - a single "error_count" key either way.
+        var smartStats = new Dictionary<string, object> { ["error_count"] = 0 };
+
+        var summary = TestSessionController.BuildSsdSummaryStats(smartStats, seqReadMbS: null, seqWriteMbS: null, errorCount: 0);
+
+        Assert.Equal(1, summary.Keys.Count(k => k == "error_count"));
+        Assert.Equal(0, summary["error_count"]);
+    }
+
+    [Fact]
+    public void BuildSsdSummaryStats_DoesNotMutateInputDictionary()
+    {
+        var smartStats = new Dictionary<string, object> { ["error_count"] = 0 };
+
+        TestSessionController.BuildSsdSummaryStats(smartStats, seqReadMbS: 100.0, seqWriteMbS: null, errorCount: 0);
+
+        Assert.False(smartStats.ContainsKey("min_seq_read_mb_s"));
+    }
+
     // ---- ParseRamLog ---------------------------------------------------------------------------
     // Real captured Log.txt shape (see TM5Runner's class remarks) - a fresh session header, a
     // "Testing N MB x..." line, and eventually a stop/completion line.

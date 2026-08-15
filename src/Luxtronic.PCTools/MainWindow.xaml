@@ -89,7 +89,18 @@
                     <CheckBox x:Name="RamTestCheck" Content="RAM - TestMem5 Stress Test" FontWeight="SemiBold" Checked="RamTestCheck_Checked"/>
                     <TextBlock x:Name="RamDurationText" Text="(duration: checking...)" Foreground="Gray" Margin="8,0,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
-                <CheckBox Content="SSD - CrystalDiskMark (coming soon)" IsEnabled="False" Foreground="Gray"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <CheckBox x:Name="SsdTestCheck" Content="SSD - DiskSpd Sequential Benchmark" FontWeight="SemiBold"
+                              Checked="SsdTestCheck_Checked" Unchecked="SsdTestCheck_Unchecked"/>
+                    <TextBlock Text="(~20s per pass, SEQ1M Q8T1)" Foreground="Gray" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+                <StackPanel x:Name="SsdDrivePickerPanel" Margin="24,0,0,0" Visibility="Collapsed">
+                    <TextBlock Text="Drive to benchmark" Margin="0,0,0,2"/>
+                    <ComboBox x:Name="SsdDriveCombo" Margin="0,0,0,6" DisplayMemberPath="DisplayText"
+                              SelectionChanged="SsdDriveCombo_SelectionChanged"/>
+                    <TextBlock Text="Target folder (created if missing; a scratch test file is written there, then deleted)" Margin="0,0,0,2"/>
+                    <TextBox x:Name="SsdTargetFolderBox" Margin="0,0,0,4"/>
+                </StackPanel>
             </StackPanel>
         </GroupBox>
 
