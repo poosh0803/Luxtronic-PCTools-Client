@@ -38,7 +38,18 @@ $PublishAssetsDir = Join-Path $RepoRoot 'publish-assets'
 # CPU test duration is server-owned config (CONTRACT.md section 3 - "config flows one direction:
 # from server to client"), not a client setting. Assumes Luxtronic-PCTools-Server checked out as
 # a sibling directory next to this repo, matching this machine's layout under \Documents\Github.
-$ServerConfigPath = Join-Path $RepoRoot '..\Luxtronic-PCTools-Server\config\default.json'
+$ServerRepoRoot   = Join-Path $RepoRoot '..\Luxtronic-PCTools-Server'
+$ServerConfigPath = Join-Path $ServerRepoRoot 'config\default.json'
+
+# Live LAN deploy target - same server/credentials/pattern as the other Luxtronic services
+# (see the lan-portal-deploy skill). luxtronic-pctools-server is the pm2 process name (confirmed
+# via `pm2 list` on the box), not something guessed - re-check with `pm2 jlist` if this ever stops
+# matching (e.g. the service gets renamed).
+$LanServerHost     = '192.168.68.255'
+$LanServerUser     = 'root'
+$LanSshKeyPath     = 'C:\Users\Admin\.ssh\lan-portal-ssh.txt'
+$LanServerRepoPath = '/root/Luxtronic-PCTools-Server'
+$LanPm2Name        = 'luxtronic-pctools-server'
 
 function Write-Header {
     Clear-Host
@@ -274,9 +285,86 @@ function Write-ServerConfigDeployWarning {
     Write-Host 'IMPORTANT: this only changes YOUR LOCAL checkout. The live LAN server' -ForegroundColor Red
     Write-Host '(usually http://192.168.68.255:7777 - check appsettings.json ServerBaseUrl) is a' -ForegroundColor Red
     Write-Host 'separate running process that reads its OWN copy of this file - it will keep using' -ForegroundColor Red
-    Write-Host 'the old value until this change is committed, pushed, and deployed there (git pull +' -ForegroundColor Red
-    Write-Host 'pm2 restart luxtronic-pctools-server on that box). The app will show the old value' -ForegroundColor Red
-    Write-Host 'until that happens, even though this menu will show the new one.' -ForegroundColor Red
+    Write-Host 'the old value until this change is committed, pushed, and deployed there. You will' -ForegroundColor Red
+    Write-Host 'be asked below whether to do that now (or use option 10 to deploy later).' -ForegroundColor Red
+}
+
+# Commits config/default.json (only that file - never -A, so this can't accidentally sweep up
+# someone else's unrelated WIP sitting in the sibling Server checkout), pushes, then SSHes into
+# the live LAN box to git pull + pm2 restart the real running service - the same manual sequence
+# used to deploy the CPU duration change live (2026-08-15), now available from the menu itself
+# instead of by hand. This touches a shared production server other people may be relying on
+# (the technician-facing dashboard, any PC client currently mid-session against it) - always
+# confirmed interactively before doing anything, never called silently.
+function Deploy-ServerConfigToLive {
+    if (-not (Test-Path $ServerRepoRoot)) {
+        Write-Host "Server repo not found at $ServerRepoRoot - expected as a sibling directory next to this repo." -ForegroundColor Red
+        return
+    }
+    if (-not (Test-Path $LanSshKeyPath)) {
+        Write-Host "SSH key not found at $LanSshKeyPath - can't reach the live server without it." -ForegroundColor Red
+        return
+    }
+
+    Push-Location $ServerRepoRoot
+    try {
+        $uncommittedDiff = git diff -- config/default.json
+        $stagedDiff = git diff --cached -- config/default.json
+        $hasLocalChange = [bool]$uncommittedDiff -or [bool]$stagedDiff
+
+        if ($hasLocalChange) {
+            Write-Host ''
+            Write-Host 'Uncommitted config/default.json change:' -ForegroundColor Yellow
+            git --no-pager diff -- config/default.json
+            Write-Host ''
+        } else {
+            Write-Host ''
+            Write-Host 'No uncommitted config/default.json change - checking whether there are already' -ForegroundColor DarkYellow
+            Write-Host 'committed-but-unpushed commits, or the live server just needs a re-pull...' -ForegroundColor DarkYellow
+        }
+
+        $confirm = Read-Host -Prompt "This will commit+push config/default.json (if changed) and run 'git pull && pm2 restart $LanPm2Name' on the LIVE server ($LanServerHost) via SSH. Continue? (y/N)"
+        if ($confirm -ne 'y' -and $confirm -ne 'Y') {
+            Write-Host 'Cancelled - nothing pushed, live server untouched.' -ForegroundColor DarkYellow
+            return
+        }
+
+        if ($hasLocalChange) {
+            git add config/default.json
+            git commit -m 'Update server config (via dev-menu)' | Out-Null
+            Write-Host 'Committed locally.' -ForegroundColor Green
+        }
+
+        Write-Host 'Pushing to origin/master...' -ForegroundColor Yellow
+        git push origin master
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host 'git push failed - stopping before touching the live server. See error above.' -ForegroundColor Red
+            return
+        }
+
+        Write-Host ''
+        Write-Host "Deploying on $LanServerHost (git pull + pm2 restart $LanPm2Name)..." -ForegroundColor Yellow
+        $sshArgs = @('-i', $LanSshKeyPath, '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
+            "$LanServerUser@$LanServerHost",
+            "cd $LanServerRepoPath && git pull && pm2 restart $LanPm2Name")
+        & ssh @sshArgs
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host 'SSH deploy command failed or returned non-zero - see output above.' -ForegroundColor Red
+            Write-Host 'If auth failed with "error in libcrypto", the key file may have picked up' -ForegroundColor DarkYellow
+            Write-Host 'CRLF line endings - see the lan-portal-deploy skill for the fix.' -ForegroundColor DarkYellow
+            return
+        }
+
+        Write-Host ''
+        Write-Host 'Verifying deployed cpu/gpu duration values...' -ForegroundColor Yellow
+        & ssh -i $LanSshKeyPath -o BatchMode=yes -o ConnectTimeout=10 "$LanServerUser@$LanServerHost" `
+            "grep -A3 '`"cpu`"' $LanServerRepoPath/config/default.json; grep -A3 '`"gpu`"' $LanServerRepoPath/config/default.json"
+
+        Write-Host ''
+        Write-Host 'Deployed - the live server is now running the updated config.' -ForegroundColor Green
+    } finally {
+        Pop-Location
+    }
 }
 
 function Set-CpuTestDuration {
@@ -315,6 +403,13 @@ function Set-CpuTestDuration {
     $newText = $text -replace $pattern, "`${1}$minutes"
     Set-Content -Path $ServerConfigPath -Value $newText -NoNewline -Encoding utf8
     Write-Host "Set CPU test duration to $minutes minute(s) in $ServerConfigPath." -ForegroundColor Green
+
+    $deployNow = Read-Host -Prompt 'Deploy this to the live LAN server now? (y/N)'
+    if ($deployNow -eq 'y' -or $deployNow -eq 'Y') {
+        Deploy-ServerConfigToLive
+    } else {
+        Write-Host 'Not deployed - use option 10 whenever you''re ready.' -ForegroundColor DarkYellow
+    }
 }
 
 # Same shape as Set-CpuTestDuration, for gpu.duration_minutes instead of cpu.duration_minutes -
@@ -354,6 +449,13 @@ function Set-GpuTestDuration {
     $newText = $text -replace $pattern, "`${1}$minutes"
     Set-Content -Path $ServerConfigPath -Value $newText -NoNewline -Encoding utf8
     Write-Host "Set GPU test duration to $minutes minute(s) in $ServerConfigPath." -ForegroundColor Green
+
+    $deployNow = Read-Host -Prompt 'Deploy this to the live LAN server now? (y/N)'
+    if ($deployNow -eq 'y' -or $deployNow -eq 'Y') {
+        Deploy-ServerConfigToLive
+    } else {
+        Write-Host 'Not deployed - use option 10 whenever you''re ready.' -ForegroundColor DarkYellow
+    }
 }
 
 function Publish-SelfContained {
@@ -479,9 +581,10 @@ while ($running) {
     Write-Host '  7) Set server URL'
     Write-Host '  8) Set CPU test duration (server config)'
     Write-Host '  9) Set GPU test duration (server config)'
-    Write-Host '  10) Open tools folder (prime95, hwi, FurMark, TestMem5, DiskSpd)'
-    Write-Host '  11) Publish self-contained build (for PCs without .NET installed)'
-    Write-Host '  12) Exit'
+    Write-Host '  10) Deploy server config to live LAN server (push + restart)'
+    Write-Host '  11) Open tools folder (prime95, hwi, FurMark, TestMem5, DiskSpd)'
+    Write-Host '  12) Publish self-contained build (for PCs without .NET installed)'
+    Write-Host '  13) Exit'
     Write-Host ''
 
     $choice = Read-Host -Prompt 'Choice'
@@ -497,9 +600,10 @@ while ($running) {
         '7' { Set-ServerUrl }
         '8' { Set-CpuTestDuration }
         '9' { Set-GpuTestDuration }
-        '10' { Open-ToolsFolder }
-        '11' { Publish-SelfContained }
-        '12' { $running = $false }
+        '10' { Deploy-ServerConfigToLive }
+        '11' { Open-ToolsFolder }
+        '12' { Publish-SelfContained }
+        '13' { $running = $false }
         default { Write-Host 'Not a valid choice.' -ForegroundColor Red }
     }
 
