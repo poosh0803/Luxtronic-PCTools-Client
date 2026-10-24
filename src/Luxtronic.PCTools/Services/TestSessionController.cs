@@ -154,7 +154,7 @@ public sealed class TestSessionController : IAsyncDisposable
             onLog($"Session created: {sessionId}");
 
             onLog("Starting CPU test run (POST .../test-runs)...");
-            testRunId = await _api.StartTestRunAsync(sessionId, Component.Cpu, uiLifetime).ConfigureAwait(false);
+            testRunId = await _api.StartTestRunAsync(sessionId, Component.Cpu, BuildRunSettings(Component.Cpu), uiLifetime).ConfigureAwait(false);
             onLog($"Test run started: {testRunId}");
 
             _telemetry = new TelemetryPublisher(_offline);
@@ -419,7 +419,7 @@ public sealed class TestSessionController : IAsyncDisposable
             onLog($"Session created: {sessionId}");
 
             onLog($"Starting {label} test run (POST .../test-runs)...");
-            testRunId = await _api.StartTestRunAsync(sessionId, component, uiLifetime).ConfigureAwait(false);
+            testRunId = await _api.StartTestRunAsync(sessionId, component, BuildRunSettings(component), uiLifetime).ConfigureAwait(false);
             onLog($"Test run started: {testRunId}");
 
             _telemetry = new TelemetryPublisher(_offline);
@@ -647,7 +647,7 @@ public sealed class TestSessionController : IAsyncDisposable
             onLog($"Session created: {sessionId}");
 
             onLog("Starting RAM test run (POST .../test-runs)...");
-            testRunId = await _api.StartTestRunAsync(sessionId, Component.Ram, uiLifetime).ConfigureAwait(false);
+            testRunId = await _api.StartTestRunAsync(sessionId, Component.Ram, BuildRunSettings(Component.Ram), uiLifetime).ConfigureAwait(false);
             onLog($"Test run started: {testRunId}");
 
             _telemetry = new TelemetryPublisher(_offline);
@@ -875,7 +875,7 @@ public sealed class TestSessionController : IAsyncDisposable
             onLog($"Session created: {sessionId}");
 
             onLog("Starting SSD test run (POST .../test-runs)...");
-            testRunId = await _api.StartTestRunAsync(sessionId, Component.Ssd, uiLifetime).ConfigureAwait(false);
+            testRunId = await _api.StartTestRunAsync(sessionId, Component.Ssd, BuildRunSettings(Component.Ssd), uiLifetime).ConfigureAwait(false);
             onLog($"Test run started: {testRunId}");
 
             // Live read/write speed from Windows' disk counters while DiskSpd runs (DiskSpd itself

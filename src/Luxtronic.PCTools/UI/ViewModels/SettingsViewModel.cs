@@ -1,3 +1,4 @@
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Luxtronic.PCTools.Services;
@@ -113,6 +114,40 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
 
         Report("Saved.", isError: false);
+    }
+
+    /// <summary>
+    /// Puts the test and tuning settings back to the app's defaults and saves them. Deliberately
+    /// leaves the server URL and API key alone - wiping a technician's key would be destructive and
+    /// is not what "defaults" is for.
+    /// </summary>
+    [RelayCommand]
+    private async Task ResetDefaultsAsync()
+    {
+        var choice = MessageBox.Show(
+            "Reset the test durations, CPU load level, VRAM GPU number, telemetry interval, offline mode and theme to their defaults?\n\n" +
+            "Your server URL and API key are not changed.",
+            "Reset to defaults", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (choice != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        CpuMinutes = AppSettingsProvider.DefaultCpuMinutes.ToString();
+        GpuMinutes = AppSettingsProvider.DefaultGpuMinutes.ToString();
+        RamMinutes = AppSettingsProvider.DefaultRamMinutes.ToString();
+        VramMinutes = AppSettingsProvider.DefaultVramMinutes.ToString();
+        VramDevice = AppSettingsProvider.DefaultVramDeviceIndex.ToString();
+        TelemetryInterval = AppSettingsProvider.DefaultTelemetryIntervalMs.ToString();
+        CpuLoad = CpuLoadLevel.Blend;
+        OfflineMode = false;
+        SelectedTheme = ThemeChoice.Dark;
+
+        await SaveAsync();
+        if (!StatusIsError)
+        {
+            Report("Defaults restored and saved. Server URL and API key were left as they are.", isError: false);
+        }
     }
 
     [RelayCommand]

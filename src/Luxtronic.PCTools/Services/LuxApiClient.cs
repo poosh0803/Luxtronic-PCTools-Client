@@ -91,11 +91,12 @@ public sealed class LuxApiClient : IDisposable
     /// concurrency rule (CONTRACT.md §6) can produce - only CPU is wired up this pass so this
     /// path is effectively dead for now, but implemented so it's ready when GPU/RAM/SSD land.
     /// </summary>
-    public async Task<string> StartTestRunAsync(string sessionId, string component, CancellationToken ct = default)
+    public async Task<string> StartTestRunAsync(
+        string sessionId, string component, Dictionary<string, object>? runSettings = null, CancellationToken ct = default)
     {
         if (_offline) return Guid.NewGuid().ToString();
 
-        var request = new StartTestRunRequest { Component = component };
+        var request = new StartTestRunRequest { Component = component, RunSettings = runSettings };
         using var resp = await _http.PostAsJsonAsync($"/api/sessions/{sessionId}/test-runs", request, RequestJsonOptions, ct).ConfigureAwait(false);
 
         if (resp.StatusCode == HttpStatusCode.Conflict)

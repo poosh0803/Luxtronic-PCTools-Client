@@ -108,6 +108,11 @@
                             Command="{Binding TestConnectionCommand}"
                             Content="Save and test connection"
                             Icon="{ui:SymbolIcon PlugConnected24}" />
+                        <ui:Button
+                            Margin="8,0,0,0"
+                            Command="{Binding ResetDefaultsCommand}"
+                            Content="Reset to defaults"
+                            Icon="{ui:SymbolIcon ArrowReset24}" />
                     </StackPanel>
                     <ui:TextBlock
                         Margin="0,8,0,0"

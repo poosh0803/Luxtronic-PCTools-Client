@@ -211,6 +211,11 @@ public sealed class StartTestRunRequest
 {
     [JsonPropertyName("component")]
     public string Component { get; set; } = Models.Component.Cpu;
+
+    /// <summary>What this run will use (duration / mode / ...), sent at the start so the server's
+    /// record shows it while the test is still running, not only after it completes.</summary>
+    [JsonPropertyName("run_settings")]
+    public Dictionary<string, object>? RunSettings { get; set; }
 }
 
 public sealed class StartTestRunResponse
