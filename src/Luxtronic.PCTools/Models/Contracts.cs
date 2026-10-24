@@ -190,6 +190,11 @@ public sealed class CreateSessionRequest
     [JsonPropertyName("ssd_serials")]
     public List<string>? SsdSerials { get; set; }
 
+    /// <summary>PC specification (CPU, graphics, memory modules, motherboard, drives, OS) so the report
+    /// can show the machine's spec - see SystemInfoCollector for the shape. Null if not collected.</summary>
+    [JsonPropertyName("system_info")]
+    public Dictionary<string, object>? SystemInfo { get; set; }
+
     [JsonPropertyName("other_serials")]
     public Dictionary<string, string>? OtherSerials { get; set; }
 }

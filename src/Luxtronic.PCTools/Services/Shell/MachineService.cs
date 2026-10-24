@@ -87,6 +87,12 @@ public sealed partial class MachineService : ObservableObject, IDisposable
 
     public IReadOnlyList<SsdDriveOption> DriveOptions { get; private set; } = Array.Empty<SsdDriveOption>();
 
+    /// <summary>The PC's specification, sent to the server with each session (null until collected).</summary>
+    public Dictionary<string, object>? SystemInfo { get; private set; }
+
+    private IReadOnlyList<SsdSmartInfo> _ssdInfos = Array.Empty<SsdSmartInfo>();
+    private MotherboardInfo _boardInfo = new(null, null, null);
+
     /// <summary>Raised on the UI thread once <see cref="InitializeAsync"/> finishes (success or not).</summary>
     public event Action? Initialized;
 
@@ -165,6 +171,7 @@ public sealed partial class MachineService : ObservableObject, IDisposable
         }
 
         await LoadMotherboardInfoAsync();
+        await LoadSystemInfoAsync();
 
         IsInitialized = true;
         Initialized?.Invoke();
@@ -177,6 +184,7 @@ public sealed partial class MachineService : ObservableObject, IDisposable
         try
         {
             var drives = Sensors.ReadSsds();
+            _ssdInfos = drives;
             Drives.Clear();
             foreach (var drive in drives)
             {
@@ -240,6 +248,7 @@ public sealed partial class MachineService : ObservableObject, IDisposable
             }
 
             var info = await task;
+            _boardInfo = info;
             MotherboardName = info.Name ?? "";
             BiosVersion = info.BiosVersion ?? "--";
             BiosDate = info.BiosDate ?? "--";
@@ -247,6 +256,36 @@ public sealed partial class MachineService : ObservableObject, IDisposable
         catch (Exception ex)
         {
             _log.Append($"Could not read motherboard info: {ex.Message}");
+        }
+    }
+
+    /// <summary>Collects the PC specification for the report (WMI + what sensors already read), on a
+    /// background thread with a bounded wait like the other WMI lookups.</summary>
+    private async Task LoadSystemInfoAsync()
+    {
+        try
+        {
+            string? gpuName = GpuName.Length > 0 ? GpuName : null;
+            double? vramMb = null;
+            if (SensorsHealthy)
+            {
+                try { vramMb = Sensors.ReadGpu()?.MemoryTotalMb; }
+                catch (Exception) { /* VRAM is a nice-to-have */ }
+            }
+
+            var task = Task.Run(() => SystemInfoCollector.Collect(_boardInfo, RealMoboSerial, _ssdInfos, gpuName, vramMb));
+            if (await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(15))) != task)
+            {
+                _log.Append("WARNING: collecting PC specification (WMI) did not finish within 15s - reports will lack it.");
+                return;
+            }
+
+            SystemInfo = await task;
+            _log.Append($"PC specification collected ({SystemInfo.Count} sections) - sent with each submitted session.");
+        }
+        catch (Exception ex)
+        {
+            _log.Append($"Could not collect the PC specification: {ex.Message}");
         }
     }
 

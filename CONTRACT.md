@@ -37,6 +37,7 @@ CREATE TABLE sessions (
   notes           TEXT,
   ssd_serials     JSONB NOT NULL DEFAULT '[]',   -- ["serial1", "serial2", ...]
   other_serials   JSONB NOT NULL DEFAULT '{}',   -- { "gpu": "...", ... } best-effort, may be empty
+  system_info     JSONB,                         -- PC specification for the report; added by migrations/003 (see §4)
   started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   ended_at        TIMESTAMPTZ
 );
@@ -125,7 +126,7 @@ A JSON file on the server (v1 — no admin UI, per plan). Client fetches the rel
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/config` | Fetch current thresholds/durations JSON (§3) |
-| POST | `/api/sessions` | Create a session. Body: `{ mobo_serial, customer_name?, session_type, notes?, ssd_serials?, other_serials? }` → `{ session_id }` |
+| POST | `/api/sessions` | Create a session. Body: `{ mobo_serial, customer_name?, session_type, notes?, ssd_serials?, other_serials?, system_info? }` → `{ session_id }`. `system_info` is the PC's specification so the report shows what machine was tested (object under 64KB, every key optional): `cpu {name, cores, threads, base_clock_mhz}`, `gpu [{name, vram_gb, driver_version}]`, `memory {total_gb, modules [{slot, size_gb, type, speed_mhz, manufacturer, part_number}]}`, `motherboard {name, serial, bios_version, bios_date}`, `storage [{model, serial, firmware, capacity_gb, bus, health_percent, power_on_hours, power_on_count, host_reads_gb, host_writes_gb}]`, `os {name, version, architecture}`. Stored in `sessions.system_info`; shown on the session page and at the top of the PDF report (formatted by `src/lib/systemInfo.js`) |
 | POST | `/api/sessions/:id/test-runs` | Start a test run. Body: `{ component }` → `201 { test_run_id }`, or `409 { error: "exclusive_conflict", active_component }` if the concurrency rule (§6) rejects it |
 | PATCH | `/api/sessions/:id/test-runs/:test_run_id` | Complete a test run. Body: `{ tool_exit_code, tool_output_raw, summary_stats, stop_reason?, run_settings? }` → server computes and returns `{ result }` (§7). `run_settings` is an optional object (under 4KB) of what the client actually ran with, e.g. `{ duration_minutes: 10, mode: "blend", avx_disabled: false }` for CPU, `{ duration_minutes, device_index }` for VRAM; it is merged over the run's `config_snapshot` (`config_snapshot \|\| run_settings`). Servers/clients that predate it simply ignore it / don't send it |
 | PATCH | `/api/sessions/:id` | End session. Body: `{}` → sets `ended_at`; also auto-closes (§7) any test_run still open in this session |

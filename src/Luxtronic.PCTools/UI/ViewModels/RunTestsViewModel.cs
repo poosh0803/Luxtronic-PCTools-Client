@@ -176,6 +176,7 @@ public sealed partial class RunTestsViewModel : ObservableObject
             SessionType = IsNewBuild ? SessionType.NewBuild : SessionType.Repair,
             Notes = string.IsNullOrWhiteSpace(Notes) ? null : Notes.Trim(),
             SsdSerials = ssdSerials.Count > 0 ? ssdSerials : null,
+            SystemInfo = Machine.SystemInfo,
         };
 
         if (_settings.OfflineMode)
