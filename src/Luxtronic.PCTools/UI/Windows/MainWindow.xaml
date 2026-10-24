@@ -1,0 +1,83 @@
+<ui:FluentWindow
+    x:Class="Luxtronic.PCTools.UI.Windows.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:pages="clr-namespace:Luxtronic.PCTools.UI.Pages"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    Title="Luxtronic PCTools"
+    Icon="pack://application:,,,/Resources/Emblem.png"
+    Width="1100"
+    Height="760"
+    MinWidth="860"
+    MinHeight="560"
+    ExtendsContentIntoTitleBar="True"
+    SnapsToDevicePixels="True"
+    UseLayoutRounding="True"
+    WindowBackdropType="Mica"
+    WindowCornerPreference="Round"
+    WindowStartupLocation="CenterScreen">
+    <Grid>
+        <ui:NavigationView
+            x:Name="RootNavigation"
+            Padding="0"
+            FrameMargin="0"
+            IsBackButtonVisible="Collapsed"
+            IsPaneToggleVisible="True"
+            OpenPaneLength="210"
+            PaneDisplayMode="Left"
+            TitleBar="{Binding ElementName=TitleBar, Mode=OneWay}">
+            <ui:NavigationView.MenuItems>
+                <ui:NavigationViewItem
+                    Content="Dashboard"
+                    Icon="{ui:SymbolIcon Home24}"
+                    TargetPageType="{x:Type pages:DashboardPage}" />
+                <ui:NavigationViewItem
+                    Content="Run Tests"
+                    Icon="{ui:SymbolIcon PlayCircle24}"
+                    TargetPageType="{x:Type pages:RunTestsPage}" />
+                <ui:NavigationViewItemSeparator Margin="0,2,0,2" />
+                <ui:NavigationViewItem
+                    Content="CPU"
+                    Icon="{ui:SymbolIcon DeveloperBoard24}"
+                    TargetPageType="{x:Type pages:CpuTestPage}" />
+                <ui:NavigationViewItem
+                    Content="GPU"
+                    Icon="{ui:SymbolIcon Games24}"
+                    TargetPageType="{x:Type pages:GpuTestPage}" />
+                <ui:NavigationViewItem
+                    Content="VRAM"
+                    Icon="{ui:SymbolIcon CubeMultiple24}"
+                    TargetPageType="{x:Type pages:VramTestPage}" />
+                <ui:NavigationViewItem
+                    Content="RAM"
+                    Icon="{ui:SymbolIcon Server24}"
+                    TargetPageType="{x:Type pages:RamTestPage}" />
+                <ui:NavigationViewItem
+                    Content="SSD"
+                    Icon="{ui:SymbolIcon HardDrive24}"
+                    TargetPageType="{x:Type pages:SsdTestPage}" />
+            </ui:NavigationView.MenuItems>
+            <ui:NavigationView.FooterMenuItems>
+                <ui:NavigationViewItem
+                    Content="Settings"
+                    Icon="{ui:SymbolIcon Settings24}"
+                    TargetPageType="{x:Type pages:SettingsPage}" />
+                <ui:NavigationViewItem
+                    Content="Log / About"
+                    Icon="{ui:SymbolIcon DocumentText24}"
+                    TargetPageType="{x:Type pages:LogAboutPage}" />
+            </ui:NavigationView.FooterMenuItems>
+            <ui:NavigationView.ContentOverlay>
+                <Grid>
+                    <ui:SnackbarPresenter x:Name="SnackbarPresenter" />
+                </Grid>
+            </ui:NavigationView.ContentOverlay>
+        </ui:NavigationView>
+
+        <ui:TitleBar x:Name="TitleBar" Title="Luxtronic PCTools">
+            <ui:TitleBar.Icon>
+                <ui:ImageIcon Source="pack://application:,,,/Resources/Emblem.png" />
+            </ui:TitleBar.Icon>
+        </ui:TitleBar>
+    </Grid>
+</ui:FluentWindow>

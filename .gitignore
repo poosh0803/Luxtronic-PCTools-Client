@@ -43,3 +43,7 @@ tools/TestMem5/*
 # OS cruft
 Thumbs.db
 .DS_Store
+
+# memtest_vulkan (VRAM test) - third-party binary, not committed
+tools/memtest_vulkan/*
+!tools/memtest_vulkan/README.md

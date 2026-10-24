@@ -1,0 +1,122 @@
+<UserControl
+    x:Class="Luxtronic.PCTools.UI.Controls.SingleTestView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:behaviors="clr-namespace:Luxtronic.PCTools.UI.Behaviors"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+    </UserControl.Resources>
+    <ScrollViewer behaviors:WheelScroll.Enabled="True" VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="32,24,32,24">
+            <ui:TextBlock FontTypography="Title" Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="{Binding Title}" />
+            <ui:TextBlock
+                Margin="0,2,0,0"
+                Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                Text="{Binding ToolName}" />
+            <ui:TextBlock
+                Margin="0,2,0,16"
+                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                Text="This tab runs the test on this PC only - nothing is sent to the server. Use Run Tests to submit results."
+                TextWrapping="Wrap" />
+
+            <ui:Card Margin="0,0,0,12" IsEnabled="{Binding CanEdit}">
+                <StackPanel>
+                    <ui:TextBlock Margin="0,0,0,8" FontTypography="Subtitle" Text="Setup" />
+                    <ui:TextBlock Margin="0,0,0,4" Text="{Binding Description}" TextWrapping="Wrap" />
+                    <ui:TextBlock Text="{Binding DurationText, StringFormat='Duration: {0}'}" />
+
+                    <StackPanel Margin="0,12,0,0" Visibility="{Binding HasDrivePicker, Converter={StaticResource BoolToVis}}">
+                        <ComboBox
+                            Margin="0,0,0,8"
+                            DisplayMemberPath="DisplayText"
+                            ItemsSource="{Binding DriveOptions}"
+                            SelectedItem="{Binding SelectedDrive}" />
+                        <ui:TextBox PlaceholderText="Target folder, e.g. D:\" Text="{Binding TargetFolder, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                </StackPanel>
+            </ui:Card>
+
+            <StackPanel Margin="0,0,0,12" Orientation="Horizontal">
+                <ui:Button
+                    Appearance="Primary"
+                    Command="{Binding StartCommand}"
+                    Content="Start"
+                    Icon="{ui:SymbolIcon Play24}" />
+                <ui:Button
+                    Margin="8,0,0,0"
+                    Command="{Binding StopCommand}"
+                    Content="Stop"
+                    Icon="{ui:SymbolIcon Stop24}" />
+                <StackPanel
+                    Margin="16,0,0,0"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}">
+                    <ui:ProgressRing Width="20" Height="20" IsIndeterminate="True" />
+                    <ui:TextBlock Margin="8,0,0,0" FontWeight="SemiBold" Text="Test running - do not power off" />
+                </StackPanel>
+            </StackPanel>
+
+            <StackPanel Margin="0,0,0,12" Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}">
+                <ProgressBar
+                    Height="6"
+                    IsIndeterminate="{Binding ProgressIndeterminate}"
+                    Maximum="100"
+                    Value="{Binding ProgressPercent, Mode=OneWay}" />
+                <ui:TextBlock
+                    Margin="0,4,0,0"
+                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                    Text="{Binding ElapsedText}" />
+            </StackPanel>
+
+            <ui:Card Margin="0,0,0,12" Visibility="{Binding HasLiveStats, Converter={StaticResource BoolToVis}}">
+                <StackPanel>
+                    <ui:TextBlock Margin="0,0,0,10" FontTypography="Subtitle" Text="Live sensors" />
+                    <ItemsControl ItemsSource="{Binding LiveStats}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Columns="4" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border
+                                    Margin="0,0,8,8"
+                                    Padding="12,10"
+                                    Background="{DynamicResource ControlFillColorSecondaryBrush}"
+                                    CornerRadius="6">
+                                    <StackPanel>
+                                        <ui:TextBlock
+                                            FontSize="20"
+                                            FontWeight="SemiBold"
+                                            Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                            Text="{Binding Value}" />
+                                        <ui:TextBlock
+                                            FontSize="12"
+                                            Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                            Text="{Binding Label}" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ui:Card>
+
+            <ui:Card Margin="0,0,0,12" Visibility="{Binding ShowRamReadout, Converter={StaticResource BoolToVis}}">
+                <StackPanel>
+                    <ui:TextBlock Margin="0,0,0,8" FontTypography="Subtitle" Text="Progress" />
+                    <ui:TextBlock Text="{Binding MachineState.RamReadout}" TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:Card>
+
+            <ui:Card Visibility="{Binding HasResult, Converter={StaticResource BoolToVis}}">
+                <StackPanel>
+                    <ui:TextBlock Margin="0,0,0,8" FontTypography="Subtitle" Text="Last run (this PC only - not submitted)" />
+                    <ui:TextBlock Text="{Binding ResultText}" TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:Card>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -1,0 +1,56 @@
+<Page
+    x:Class="Luxtronic.PCTools.UI.Pages.LogAboutPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:behaviors="clr-namespace:Luxtronic.PCTools.UI.Behaviors"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    Title="Log / About">
+    <Grid Margin="32,24,32,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ui:TextBlock FontTypography="Title" Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="Log / About" />
+
+        <StackPanel Grid.Row="1" Margin="0,12,0,8" Orientation="Horizontal">
+            <ui:Button Command="{Binding CopyCommand}" Content="Copy" Icon="{ui:SymbolIcon Copy24}" />
+            <ui:Button Margin="8,0,0,0" Command="{Binding ClearCommand}" Content="Clear" Icon="{ui:SymbolIcon Delete24}" />
+            <ui:Button Margin="8,0,0,0" Command="{Binding OpenLogFolderCommand}" Content="Open log folder" Icon="{ui:SymbolIcon Folder24}" />
+        </StackPanel>
+
+        <ui:Card Grid.Row="2" Padding="8">
+            <ListBox
+                x:Name="LogList"
+                behaviors:WheelScroll.Enabled="True"
+                ItemsSource="{Binding Entries}"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock FontFamily="Consolas" Text="{Binding Display}" TextWrapping="Wrap" />
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </ui:Card>
+
+        <ui:Card Grid.Row="3" Margin="0,12,0,0">
+            <StackPanel>
+                <Image
+                    Height="90"
+                    Margin="0,0,0,8"
+                    HorizontalAlignment="Left"
+                    RenderOptions.BitmapScalingMode="HighQuality"
+                    Source="pack://application:,,,/Resources/Logo.png" />
+                <ui:TextBlock FontTypography="Subtitle" Text="Luxtronic PCTools" />
+                <ui:TextBlock Margin="0,4,0,0" Text="{Binding Version, StringFormat='Version {0}'}" />
+                <ui:TextBlock
+                    Margin="0,4,0,0"
+                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                    Text="Internal technician tool. Bundled third-party test tools (Prime95, FurMark, TestMem5, DiskSpd, HWiNFO) are licensed for internal use only - do not redistribute."
+                    TextWrapping="Wrap" />
+            </StackPanel>
+        </ui:Card>
+    </Grid>
+</Page>

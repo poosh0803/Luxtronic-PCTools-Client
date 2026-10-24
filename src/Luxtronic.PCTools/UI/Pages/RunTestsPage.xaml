@@ -1,0 +1,121 @@
+<Page
+    x:Class="Luxtronic.PCTools.UI.Pages.RunTestsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:behaviors="clr-namespace:Luxtronic.PCTools.UI.Behaviors"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    Title="Run Tests">
+    <Page.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+    </Page.Resources>
+    <ScrollViewer behaviors:WheelScroll.Enabled="True" VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="32,24,32,24">
+            <ui:TextBlock FontTypography="Title" Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="Run Tests" />
+            <ui:TextBlock
+                Margin="0,2,0,16"
+                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                Text="Tick the tests to run. They run one after another in a single session and every result is submitted to the server. To run one test on its own without submitting, use its tab."
+                TextWrapping="Wrap" />
+
+            <ui:Card Margin="0,0,0,12" Visibility="{Binding IsOffline, Converter={StaticResource BoolToVis}}">
+                <ui:TextBlock
+                    FontWeight="SemiBold"
+                    Foreground="#C98A00"
+                    Text="Offline mode is ON (Settings) - nothing from this series will be submitted."
+                    TextWrapping="Wrap" />
+            </ui:Card>
+
+            <ui:Card Margin="0,0,0,12" IsEnabled="{Binding CanEdit}">
+                <StackPanel>
+                    <ui:TextBlock Margin="0,0,0,8" FontTypography="Subtitle" Text="Session" />
+                    <ui:TextBox
+                        Margin="0,0,0,8"
+                        PlaceholderText="Customer name (optional)"
+                        Text="{Binding CustomerName, UpdateSourceTrigger=PropertyChanged}" />
+                    <StackPanel Margin="0,0,0,8" Orientation="Horizontal">
+                        <RadioButton
+                            Margin="0,0,16,0"
+                            Content="New build"
+                            GroupName="SessionType"
+                            IsChecked="{Binding IsNewBuild}" />
+                        <RadioButton
+                            Content="Repair"
+                            GroupName="SessionType"
+                            IsChecked="{Binding IsRepair}" />
+                    </StackPanel>
+                    <ui:TextBox
+                        MinHeight="64"
+                        AcceptsReturn="True"
+                        PlaceholderText="Notes (optional)"
+                        Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:Card>
+
+            <ui:Card Margin="0,0,0,12" IsEnabled="{Binding CanEdit}">
+                <StackPanel>
+                    <ui:TextBlock Margin="0,0,0,8" FontTypography="Subtitle" Text="Tests (run in this order)" />
+                    <CheckBox IsChecked="{Binding IncludeCpu}">
+                        <TextBlock>
+                            <Run Text="CPU - Prime95" />
+                            <Run Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding CpuDuration, StringFormat='  ({0})', Mode=OneWay}" />
+                        </TextBlock>
+                    </CheckBox>
+                    <CheckBox IsChecked="{Binding IncludeGpu}">
+                        <TextBlock>
+                            <Run Text="GPU - FurMark" />
+                            <Run Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding GpuDuration, StringFormat='  ({0})', Mode=OneWay}" />
+                        </TextBlock>
+                    </CheckBox>
+                    <CheckBox IsChecked="{Binding IncludeVram}">
+                        <TextBlock>
+                            <Run Text="VRAM - memtest_vulkan" />
+                            <Run Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding VramDuration, StringFormat='  ({0})', Mode=OneWay}" />
+                        </TextBlock>
+                    </CheckBox>
+                    <CheckBox IsChecked="{Binding IncludeRam}">
+                        <TextBlock>
+                            <Run Text="RAM - TestMem5" />
+                            <Run Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding RamDuration, StringFormat='  ({0})', Mode=OneWay}" />
+                        </TextBlock>
+                    </CheckBox>
+                    <CheckBox Content="SSD - DiskSpd benchmark" IsChecked="{Binding IncludeSsd}" />
+
+                    <StackPanel Margin="24,8,0,0" Visibility="{Binding IncludeSsd, Converter={StaticResource BoolToVis}}">
+                        <ComboBox
+                            Margin="0,0,0,8"
+                            DisplayMemberPath="DisplayText"
+                            ItemsSource="{Binding DriveOptions}"
+                            SelectedItem="{Binding SelectedDrive}" />
+                        <ui:TextBox PlaceholderText="Target folder, e.g. D:\" Text="{Binding TargetFolder, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                </StackPanel>
+            </ui:Card>
+
+            <StackPanel Margin="0,0,0,12" Orientation="Horizontal">
+                <ui:Button
+                    Appearance="Primary"
+                    Command="{Binding StartCommand}"
+                    Content="Start"
+                    Icon="{ui:SymbolIcon Play24}" />
+                <ui:Button
+                    Margin="8,0,0,0"
+                    Command="{Binding StopCommand}"
+                    Content="Stop"
+                    Icon="{ui:SymbolIcon Stop24}" />
+                <StackPanel
+                    Margin="16,0,0,0"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}">
+                    <ui:ProgressRing Width="20" Height="20" IsIndeterminate="True" />
+                    <ui:TextBlock Margin="8,0,0,0" FontWeight="SemiBold" Text="{Binding StepText}" />
+                </StackPanel>
+            </StackPanel>
+            <ui:TextBlock
+                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                Text="Test running - do not power off"
+                Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

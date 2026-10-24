@@ -1,0 +1,86 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- .NET 9+ apphosts enable CET shadow stacks, which need QueueUserAPC2 (Win11 22000+ only);
+         without this the published exe fails to start on Windows 10 (0x80131506). -->
+    <CETCompat>false</CETCompat>
+    <RootNamespace>Luxtronic.PCTools</RootNamespace>
+    <AssemblyName>Luxtronic.PCTools</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Product>Luxtronic PCTools</Product>
+    <Company>Luxtronic</Company>
+    <Version>2.0.0</Version>
+    <FileVersion>2.0.0</FileVersion>
+    <NeutralLanguage>en-US</NeutralLanguage>
+    <!-- Requires elevation: LibreHardwareMonitorLib (SSD SMART) loads a kernel driver. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Logo.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+    <PackageReference Include="Serilog" Version="4.2.0" />
+    <PackageReference Include="Serilog.Extensions.Hosting" Version="9.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+    <PackageReference Include="WPF-UI" Version="4.3.0" />
+    <PackageReference Include="WPF-UI.DependencyInjection" Version="4.3.0" />
+    <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.6" />
+    <PackageReference Include="System.Management" Version="10.0.10" />
+    <PackageReference Include="Hwinfo.SharedMemory.Net" Version="2.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Resources\Emblem.png" />
+    <Resource Include="Resources\Logo.png" />
+  </ItemGroup>
+
+  <!-- Bundled third-party test tools -> one zip embedded in the exe (see Services/Shell/ToolPack.cs).
+       Built from the repo-root tools/ folder (git-ignored binaries); skipped with a warning if absent.
+       Trimmed to what the runners actually launch: no GPU-Z/GPU Shark/CPU Burner (FurMark), no
+       32-bit/ARM64 HWiNFO, no docs/logs/bat files. FurMark's EULA says "may not alter" - fine for
+       internal use, re-check before any wider distribution. -->
+  <PropertyGroup>
+    <ToolsSource>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\..\tools'))\</ToolsSource>
+    <ToolPackStage>$(MSBuildProjectDirectory)\obj\toolpack\stage\</ToolPackStage>
+    <ToolPackZip>$(MSBuildProjectDirectory)\obj\toolpack\toolpack.zip</ToolPackZip>
+    <HasToolSource Condition="Exists('$(ToolsSource)prime95\prime95.exe')">true</HasToolSource>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(HasToolSource)' == 'true'">
+    <ToolPackFile Include="$(ToolsSource)**"
+                  Exclude="$(ToolsSource)**\README.md;$(ToolsSource)**\*.url;$(ToolsSource)**\Log.txt;
+                           $(ToolsSource)hwi\HWiNFO32.exe;$(ToolsSource)hwi\HWiNFO_ARM64.exe;
+                           $(ToolsSource)prime95\whatsnew.txt;$(ToolsSource)prime95\undoc.txt;$(ToolsSource)prime95\readme.txt;
+                           $(ToolsSource)prime95\stress.txt;$(ToolsSource)prime95\prime.txt;$(ToolsSource)prime95\local.txt;$(ToolsSource)prime95\results.txt;
+                           $(ToolsSource)FurMark_win64\gpuz\**;$(ToolsSource)FurMark_win64\gpushark\**;$(ToolsSource)FurMark_win64\cpuburner\**;
+                           $(ToolsSource)FurMark_win64\exports\**;$(ToolsSource)FurMark_win64\*.bat;$(ToolsSource)FurMark_win64\_*;
+                           $(ToolsSource)FurMark_win64\FurMark_GUI.exe;$(ToolsSource)FurMark_win64\help.txt" />
+  </ItemGroup>
+
+  <Target Name="BuildToolPack" Inputs="@(ToolPackFile)" Outputs="$(ToolPackZip)" Condition="'$(HasToolSource)' == 'true'">
+    <RemoveDir Directories="$(ToolPackStage)" />
+    <Copy SourceFiles="@(ToolPackFile)" DestinationFiles="@(ToolPackFile->'$(ToolPackStage)%(RecursiveDir)%(Filename)%(Extension)')" />
+    <Delete Files="$(ToolPackZip)" />
+    <ZipDirectory SourceDirectory="$(ToolPackStage)" DestinationFile="$(ToolPackZip)" />
+  </Target>
+
+  <Target Name="EmbedToolPack" DependsOnTargets="BuildToolPack" BeforeTargets="AssignTargetPaths" Condition="'$(HasToolSource)' == 'true'">
+    <ItemGroup>
+      <EmbeddedResource Include="$(ToolPackZip)" LogicalName="toolpack.zip" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="WarnNoToolPack" BeforeTargets="AssignTargetPaths" Condition="'$(HasToolSource)' != 'true'">
+    <Warning Text="tools/prime95/prime95.exe not found - building WITHOUT an embedded tool pack (dev fallback: the app looks for a tools folder above the exe)." />
+  </Target>
+
+</Project>
