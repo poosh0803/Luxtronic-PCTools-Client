@@ -192,7 +192,8 @@ public sealed partial class RunTestsViewModel : ObservableObject
             await controller.RunSeriesAsync(
                 request, tests, SelectedDrive, TargetFolder.Trim(), _log.Append,
                 onStep: (test, index, total) => OnUi(() => StepText = $"Running {Label(test)} - test {index} of {total}"),
-                onCpu: Machine.UpdateCpu, onGpu: Machine.UpdateGpu, onRam: Machine.UpdateRam);
+                onCpu: Machine.UpdateCpu, onGpu: Machine.UpdateGpu, onRam: Machine.UpdateRam,
+                onSsdSpeed: Machine.UpdateSsdSpeed);
         }
         catch (Exception ex)
         {

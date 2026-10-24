@@ -74,6 +74,17 @@ public sealed partial class MachineService : ObservableObject, IDisposable
     public IReadOnlyList<LiveStat> GpuStats =>
         new[] { GpuTemp, GpuHotSpot, GpuLoad, GpuCoreClock, GpuMemClock, GpuFan, GpuPower, GpuVram };
 
+    public LiveStat SsdReadSpeed { get; } = new("Read speed", " MB/s");
+    public LiveStat SsdWriteSpeed { get; } = new("Write speed", " MB/s");
+    public IReadOnlyList<LiveStat> SsdStats => new[] { SsdReadSpeed, SsdWriteSpeed };
+
+    /// <summary>Live drive throughput during the SSD test (null, null clears the tiles at the end).</summary>
+    public void UpdateSsdSpeed(double? readMbS, double? writeMbS) => OnUi(() =>
+    {
+        SsdReadSpeed.Set(readMbS);
+        SsdWriteSpeed.Set(writeMbS);
+    });
+
     public IReadOnlyList<SsdDriveOption> DriveOptions { get; private set; } = Array.Empty<SsdDriveOption>();
 
     /// <summary>Raised on the UI thread once <see cref="InitializeAsync"/> finishes (success or not).</summary>

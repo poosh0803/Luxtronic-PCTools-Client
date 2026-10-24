@@ -267,7 +267,6 @@ public sealed class TestSessionController : IAsyncDisposable
             }, uiLifetime).ConfigureAwait(false);
             onLog("Test run completion recorded on the server.");
 
-            await SubmitSsdSmartDataAsync(sessionId, onLog, uiLifetime).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -614,7 +613,7 @@ public sealed class TestSessionController : IAsyncDisposable
     /// - same threading contract as RunCpuTestSessionAsync's onReading.</param>
     public async Task RunRamTestSessionAsync(
         CreateSessionRequest sessionInfo, Action<string> onLog, Action<RamTestProgress>? onProgress = null,
-        CancellationToken uiLifetime = default, SeriesSession? series = null)
+        CancellationToken uiLifetime = default, SeriesSession? series = null, Action<SensorReadings>? onCpu = null)
     {
         if (series is null)
         {
@@ -633,6 +632,7 @@ public sealed class TestSessionController : IAsyncDisposable
         string? sessionId = null;
         string? testRunId = null;
         var maxErrorsObserved = 0;
+        var logReadWarned = false;
         var logPath = Path.Combine(_settings.RamToolsDirectory, "Log.txt");
 
         try
@@ -663,25 +663,49 @@ public sealed class TestSessionController : IAsyncDisposable
                 {
                     try
                     {
+                        var ts = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+                        var samples = new List<TelemetrySample>(4);
+
                         if (File.Exists(logPath))
                         {
-                            var content = await File.ReadAllTextAsync(logPath, pollCts.Token).ConfigureAwait(false);
-                            var snapshot = ParseRamLog(content);
-                            maxErrorsObserved = Math.Max(maxErrorsObserved, snapshot.ErrorCount);
-                            onProgress?.Invoke(snapshot);
-
-                            var ts = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
-                            var samples = new List<TelemetrySample>(2);
-                            if (snapshot.TestedMb is double mb)
+                            try
                             {
-                                samples.Add(new TelemetrySample { TestRunId = capturedTestRunId, Ts = ts, SensorName = "ram_tested_mb", Value = mb });
+                                var snapshot = ParseRamLog(await ReadSharedAsync(logPath, pollCts.Token).ConfigureAwait(false));
+                                maxErrorsObserved = Math.Max(maxErrorsObserved, snapshot.ErrorCount);
+                                onProgress?.Invoke(snapshot);
+                                samples.Add(new TelemetrySample { TestRunId = capturedTestRunId, Ts = ts, SensorName = "ram_errors", Value = snapshot.ErrorCount });
                             }
-                            samples.Add(new TelemetrySample { TestRunId = capturedTestRunId, Ts = ts, SensorName = "ram_errors", Value = snapshot.ErrorCount });
-
-                            foreach (var s in samples)
+                            catch (IOException ex)
                             {
-                                await _telemetry.SendSampleAsync(s, pollCts.Token).ConfigureAwait(false);
+                                if (!logReadWarned)
+                                {
+                                    logReadWarned = true;
+                                    onLog($"TM5's log can't be read right now ({ex.Message}) - the error count is taken from it when the test ends.");
+                                }
                             }
+                        }
+
+                        // What actually changes during a RAM test: how much memory is in use (TM5
+                        // allocating what it tests) and how hard the CPU/memory controller work.
+                        if (SystemMemory.Read() is { } mem)
+                        {
+                            samples.Add(new TelemetrySample { TestRunId = capturedTestRunId, Ts = ts, SensorName = "ram_used_pct", Value = mem.UsedPercent });
+                        }
+
+                        var cpu = _sensors.ReadCpu();
+                        onCpu?.Invoke(cpu);
+                        if (cpu.CpuPackageTempC is double t)
+                        {
+                            samples.Add(new TelemetrySample { TestRunId = capturedTestRunId, Ts = ts, SensorName = "cpu_package_temp_c", Value = t });
+                        }
+                        if (cpu.CpuLoadPct is double l)
+                        {
+                            samples.Add(new TelemetrySample { TestRunId = capturedTestRunId, Ts = ts, SensorName = "cpu_load_pct", Value = l });
+                        }
+
+                        foreach (var s in samples)
+                        {
+                            await _telemetry.SendSampleAsync(s, pollCts.Token).ConfigureAwait(false);
                         }
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
@@ -820,7 +844,7 @@ public sealed class TestSessionController : IAsyncDisposable
     /// remark on RunCpuTestSessionAsync.</param>
     public async Task RunSsdTestSessionAsync(
         CreateSessionRequest sessionInfo, SsdSmartInfo targetDrive, string targetFolder, Action<string> onLog,
-        CancellationToken uiLifetime = default, SeriesSession? series = null)
+        CancellationToken uiLifetime = default, SeriesSession? series = null, Action<double?, double?>? onSpeed = null)
     {
         if (series is null)
         {
@@ -854,7 +878,59 @@ public sealed class TestSessionController : IAsyncDisposable
             testRunId = await _api.StartTestRunAsync(sessionId, Component.Ssd, uiLifetime).ConfigureAwait(false);
             onLog($"Test run started: {testRunId}");
 
+            // Live read/write speed from Windows' disk counters while DiskSpd runs (DiskSpd itself
+            // only reports at the end of each pass), shown on the PC and streamed as telemetry.
+            _telemetry = new TelemetryPublisher(_offline);
+            await _telemetry.ConnectAsync(_settings.ServerBaseUrl, _apiKey.Key, uiLifetime).ConfigureAwait(false);
+            using var speedMonitor = DiskSpeedMonitor.TryCreate(targetFolder);
+            if (speedMonitor is null)
+            {
+                onLog("Live disk speed isn't available for this drive (performance counters could not be opened) - final numbers only.");
+            }
+
+            using var pollCts = CancellationTokenSource.CreateLinkedTokenSource(uiLifetime);
+            var capturedTestRunId = testRunId;
+            var pollTask = Task.Run(async () =>
+            {
+                while (speedMonitor is not null && !pollCts.IsCancellationRequested)
+                {
+                    try
+                    {
+                        var (readMbS, writeMbS) = speedMonitor.Read();
+                        onSpeed?.Invoke(readMbS, writeMbS);
+                        var ts = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+                        await _telemetry.SendSampleAsync(new TelemetrySample { TestRunId = capturedTestRunId, Ts = ts, SensorName = "ssd_read_mb_s", Value = readMbS }, pollCts.Token).ConfigureAwait(false);
+                        await _telemetry.SendSampleAsync(new TelemetrySample { TestRunId = capturedTestRunId, Ts = ts, SensorName = "ssd_write_mb_s", Value = writeMbS }, pollCts.Token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        // A missed live sample is harmless - the final numbers come from DiskSpd itself.
+                    }
+
+                    try
+                    {
+                        await Task.Delay(_settings.TelemetrySampleIntervalMs, pollCts.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                }
+            }, uiLifetime);
+
             var runResult = await _diskSpd.RunAsync(targetFolder, _stopCts.Token, onLog, uiLifetime).ConfigureAwait(false);
+
+            pollCts.Cancel();
+            try
+            {
+                await pollTask.ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Poll loop swallows its own errors; nothing to report.
+            }
+
+            onSpeed?.Invoke(null, null);
 
             var effectiveStopReason = runResult.StopReason;
             if (runResult.WasExternallyStopped)
@@ -918,6 +994,12 @@ public sealed class TestSessionController : IAsyncDisposable
                 {
                     onLog($"Warning: failed to end session cleanly: {ex.Message}");
                 }
+            }
+
+            if (_telemetry is not null)
+            {
+                await _telemetry.DisposeAsync().ConfigureAwait(false);
+                _telemetry = null;
             }
 
             if (series is null)
@@ -989,59 +1071,6 @@ public sealed class TestSessionController : IAsyncDisposable
         return new RamTestProgress(testedMb, TM5Runner.CountErrors(logContent));
     }
 
-    /// <summary>
-    /// Reports SMART data for every detected drive as its own SSD test_run, one
-    /// start+complete pair per drive (SsdSmartInfo has no clean way to represent multiple
-    /// drives in a single flat summary_stats object - see SSD_SMART_ADDENDUM.md in the shared
-    /// planning repo for the full design/rationale, written for the server side to implement
-    /// matching support against). Runs after the CPU test_run has already completed, so it can't
-    /// trip CONTRACT.md §6's exclusive-concurrency rule for ssd. This is a passive read, not a
-    /// benchmark - min_seq_read_mb_s/min_seq_write_mb_s simply go unevaluated for these
-    /// particular test_runs (per the server's own documented convention: thresholds with no
-    /// matching summary_stats key aren't checked). A real DiskSpd-based throughput benchmark does
-    /// exist now (RunSsdTestSessionAsync below), just not on this passive per-CPU-run path.
-    ///
-    /// Best-effort: a failure here (e.g. the server doesn't support component=ssd yet) is logged
-    /// but does not fail the overall CPU test session, since CPU is this pass's actual scope. This
-    /// is a passive read, not a benchmark - min_seq_read_mb_s/min_seq_write_mb_s still go
-    /// unevaluated for these particular test_runs (only RunSsdTestSessionAsync's dedicated,
-    /// technician-initiated SSD test populates those two keys).
-    /// </summary>
-    private async Task SubmitSsdSmartDataAsync(string sessionId, Action<string> onLog, CancellationToken ct)
-    {
-        IReadOnlyList<SsdSmartInfo> drives;
-        try
-        {
-            drives = _sensors.ReadSsds();
-        }
-        catch (Exception ex)
-        {
-            onLog($"Skipping SSD SMART reporting - drive read failed: {ex.Message}");
-            return;
-        }
-
-        foreach (var drive in drives)
-        {
-            try
-            {
-                onLog($"Reporting SMART data for {drive.Model} ({drive.SerialNumber ?? "no serial"})...");
-                var ssdTestRunId = await _api.StartTestRunAsync(sessionId, Component.Ssd, ct).ConfigureAwait(false);
-                await _api.CompleteTestRunAsync(sessionId, ssdTestRunId, new CompleteTestRunRequest
-                {
-                    ToolExitCode = null,
-                    ToolOutputRaw = SsdSmartReader.FormatToolOutputRaw(drive),
-                    SummaryStats = SsdSmartReader.BuildSummaryStats(drive),
-                    StopReason = null,
-                }, ct).ConfigureAwait(false);
-                onLog($"SMART data reported for {drive.Model}.");
-            }
-            catch (Exception ex)
-            {
-                onLog($"WARNING: failed to report SMART data for {drive.Model}: {ex.Message}");
-            }
-        }
-    }
-
     /// <summary>Signals the running test to stop (technician clicked Stop). The in-flight
     /// RunCpuTestSessionAsync call still completes the test run and ends the session cleanly
     /// with stop_reason=user_abort - this just requests that, it doesn't tear anything down
@@ -1063,7 +1092,7 @@ public sealed class TestSessionController : IAsyncDisposable
         CreateSessionRequest sessionInfo, IReadOnlyList<TestKind> tests, SsdDriveOption? ssdDrive, string ssdFolder,
         Action<string> onLog, Action<TestKind, int, int>? onStep,
         Action<SensorReadings>? onCpu, Action<GpuReadings?>? onGpu, Action<RamTestProgress>? onRam,
-        CancellationToken uiLifetime = default)
+        Action<double?, double?>? onSsdSpeed = null, CancellationToken uiLifetime = default)
     {
         if (IsRunning)
         {
@@ -1105,7 +1134,7 @@ public sealed class TestSessionController : IAsyncDisposable
                             await RunVramTestSessionAsync(sessionInfo, onLog, onGpu, uiLifetime, series).ConfigureAwait(false);
                             break;
                         case TestKind.Ram:
-                            await RunRamTestSessionAsync(sessionInfo, onLog, onRam, uiLifetime, series).ConfigureAwait(false);
+                            await RunRamTestSessionAsync(sessionInfo, onLog, onRam, uiLifetime, series, onCpu).ConfigureAwait(false);
                             break;
                         case TestKind.Ssd:
                             if (ssdDrive is null)
@@ -1114,7 +1143,7 @@ public sealed class TestSessionController : IAsyncDisposable
                                 break;
                             }
 
-                            await RunSsdTestSessionAsync(sessionInfo, ssdDrive.Drive, ssdFolder, onLog, uiLifetime, series).ConfigureAwait(false);
+                            await RunSsdTestSessionAsync(sessionInfo, ssdDrive.Drive, ssdFolder, onLog, uiLifetime, series, onSsdSpeed).ConfigureAwait(false);
                             break;
                     }
                 }
@@ -1142,6 +1171,15 @@ public sealed class TestSessionController : IAsyncDisposable
 
             IsRunning = false;
         }
+    }
+
+    /// <summary>Reads a file another process still has open for writing (TestMem5's Log.txt) - the
+    /// default File.ReadAllText refuses that because it does not allow sharing with a writer.</summary>
+    private static async Task<string> ReadSharedAsync(string path, CancellationToken ct)
+    {
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        return await reader.ReadToEndAsync(ct).ConfigureAwait(false);
     }
 
     private static string Truncate(string s, int maxLen) => s.Length <= maxLen ? s : s[..maxLen] + "\n...[truncated]";

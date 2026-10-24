@@ -85,9 +85,10 @@ public sealed class RamTestViewModel : SingleTestViewModel
     protected override int? DurationMinutes => Settings.RamDurationMinutes;
     public override string Description => "System memory stability test. Close other programs first - it uses most free RAM.";
     public override bool ShowRamReadout => true;
+    public override IReadOnlyList<LiveStat>? LiveStats => Machine.CpuStats;
 
     protected override Task RunCoreAsync(TestSessionController local, CreateSessionRequest request, Action<string> log) =>
-        local.RunRamTestSessionAsync(request, log, Machine.UpdateRam);
+        local.RunRamTestSessionAsync(request, log, Machine.UpdateRam, onCpu: Machine.UpdateCpu);
 }
 
 public sealed partial class SsdTestViewModel : SingleTestViewModel
@@ -109,6 +110,7 @@ public sealed partial class SsdTestViewModel : SingleTestViewModel
     protected override int? DurationMinutes => null;
     public override string Description => "Sequential read and write speed, measured with a scratch file on the chosen drive (deleted afterwards).";
     public override bool HasDrivePicker => true;
+    public override IReadOnlyList<LiveStat>? LiveStats => Machine.SsdStats;
 
     public IReadOnlyList<SsdDriveOption> DriveOptions => Machine.DriveOptions;
 
@@ -146,5 +148,5 @@ public sealed partial class SsdTestViewModel : SingleTestViewModel
     }
 
     protected override Task RunCoreAsync(TestSessionController local, CreateSessionRequest request, Action<string> log) =>
-        local.RunSsdTestSessionAsync(request, SelectedDrive!.Drive, TargetFolder.Trim(), log);
+        local.RunSsdTestSessionAsync(request, SelectedDrive!.Drive, TargetFolder.Trim(), log, onSpeed: Machine.UpdateSsdSpeed);
 }
