@@ -42,10 +42,22 @@ public partial class MainWindow : FluentWindow
 
     private async void OnLoaded(object sender, System.Windows.RoutedEventArgs e)
     {
-        // First run: no API key yet, so start on Settings where it is entered.
+        // Fresh install: the three-field connection wizard first. Skipping it saves the defaults
+        // (so it is not shown again) and falls through to the Settings page below.
+        if (_settings.IsFirstRun)
+        {
+            var wizard = new FirstRunWindow(_settings) { Owner = this };
+            wizard.ShowDialog();
+            if (!wizard.Completed)
+            {
+                _settings.MarkSetupSeen();
+            }
+        }
+
+        // No API key yet (e.g. wizard skipped), so start on Settings where it is entered.
         // Deferred to idle: NavigationView selects its first item itself after Loaded, which
         // would otherwise override this and land on the Dashboard anyway.
-        var firstPage = _settings.ApiKey is null ? typeof(SettingsPage) : typeof(DashboardPage);
+        var firstPage = _settings.ApiKey is null && !_settings.OfflineMode ? typeof(SettingsPage) : typeof(DashboardPage);
         _ = Dispatcher.BeginInvoke(new Action(() => RootNavigation.Navigate(firstPage)),
             System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         await _machine.InitializeAsync();

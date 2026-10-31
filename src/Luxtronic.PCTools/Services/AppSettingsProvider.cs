@@ -126,7 +126,44 @@ public sealed class AppSettingsProvider
             }
         }
 
+        // Decided after the legacy apikey.txt migration above (which writes the file): a settings
+        // file means this PC has been set up (or its setup was skipped) already.
+        settings.IsFirstRun = !File.Exists(SettingsPath);
         return settings;
+    }
+
+    /// <summary>True on a fresh install (no settings file yet): the first-start wizard is shown.</summary>
+    public bool IsFirstRun { get; private set; }
+
+    /// <summary>
+    /// First-start wizard: validates and stores just the server URL, API key and offline switch,
+    /// leaving every other setting at its current value. Returns an error message, or null on success.
+    /// </summary>
+    public string? SetConnection(string serverUrl, string? apiKey, bool offlineMode)
+    {
+        var url = Normalize(serverUrl);
+        if (url is null || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            return "Server URL must look like http://192.168.68.255:7777";
+        }
+
+        if (!offlineMode && string.IsNullOrWhiteSpace(apiKey))
+        {
+            return "Enter the API key issued by the server, or turn on offline mode.";
+        }
+
+        ServerBaseUrl = url;
+        ApiKey = string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim();
+        OfflineMode = offlineMode;
+        IsFirstRun = false;
+        return TrySave() ? null : $"Could not write {SettingsPath}.";
+    }
+
+    /// <summary>Records that setup was skipped, so the wizard is not shown again (defaults are saved).</summary>
+    public void MarkSetupSeen()
+    {
+        IsFirstRun = false;
+        TrySave();
     }
 
     /// <summary>Validates and stores new values. Returns an error message, or null on success.</summary>

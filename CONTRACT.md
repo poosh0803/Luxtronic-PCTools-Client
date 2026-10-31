@@ -67,6 +67,23 @@ CREATE TABLE telemetry (
   value           DOUBLE PRECISION NOT NULL
 );
 CREATE INDEX idx_telemetry_test_run_ts ON telemetry (test_run_id, ts);
+
+-- Downloadable apps, drivers and tools the PC client can fetch (migrations 004-006). The file and
+-- icon themselves live on the server's disk under APPS_DIR/<id>/, not in the database.
+CREATE TABLE apps (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  category      TEXT NOT NULL DEFAULT 'app' CHECK (category IN ('app', 'driver', 'tool')),
+  name          TEXT NOT NULL,
+  description   TEXT,
+  version       TEXT,
+  file_name     TEXT,           -- original file name; NULL until a file is uploaded
+  file_size     BIGINT,
+  file_sha256   TEXT,
+  icon_mime     TEXT,           -- NULL = no icon
+  icon_source   TEXT,           -- 'upload' | 'extracted' (pulled from an .exe)
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 ```
 
 Only one row per PC in `machines` — `sessions` accumulate over time against the same `mobo_serial`, giving you history per physical machine across repeat visits.
@@ -145,6 +162,23 @@ A JSON file on the server (v1 — no admin UI, per plan). Client fetches the rel
 | GET | `/api/sessions/:id/report.pdf` | Generate/download PDF report |
 | POST | `/api/sessions/:id/test-runs/:test_run_id/stop` | Force-close one stuck test_run. `409 { error: "already_completed" }` if it already has an `ended_at`, `404` if not found. On success: `{ result: "aborted", session_ended_at }` — sets `result: "aborted"`, `stop_reason: "manual_stop"` (§7), and also closes the session if this was its last open test_run |
 | POST | `/api/sessions/:id/end` | Force-close the whole session: closes every still-open test_run in it (same as `.../stop`, looped) AND unconditionally sets the session's `ended_at` if unset — even if nothing was open. `404` if the session doesn't exist. On success: `{ session_id, ended_at, stopped_test_run_ids }` |
+
+### Apps, drivers and tools (no auth)
+
+One set of endpoints serves three lists, told apart by `category` (`app`, `driver`, `tool`); the dashboard has one page per category (`apps.html`, `drivers.html`, `tools.html`) and the PC client one tab per category. No API key is needed, same LAN-trust model as the rest of this table. Rows are snake_case: `id, category, name, description, version, file_name, file_size, file_sha256, icon_mime, icon_source, created_at, updated_at` (`file_size` is a JSON string, Postgres BIGINT).
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/apps?category=app\|driver\|tool` | List one category, sorted by name. `category` defaults to `app`, so a client that predates drivers/tools keeps seeing only apps; `400` for any other value |
+| POST | `/api/apps` | Create an entry (no file yet). Body: `{ name, version?, description?, category? }` → `201` row |
+| PATCH | `/api/apps/:id` | Edit `{ name?, version?, description? }` → row |
+| DELETE | `/api/apps/:id` | Delete the entry and its files → `204` |
+| PUT | `/api/apps/:id/file?filename=Setup.exe` | Raw request body (not multipart) is the file; streamed to disk with its SHA-256 computed on the way, replacing any previous file. Limit `MAX_APP_UPLOAD_MB` (default 2048) → `413`. For an `.exe` with no manually uploaded icon, the server tries to extract its icon (Windows only, 32x32 PNG) |
+| PUT | `/api/apps/:id/icon` | Raw image body, `Content-Type` png / jpeg / svg+xml / x-icon / webp, max 2 MB (`415` for other types, `413` if too large). A manual icon is kept when a new `.exe` is uploaded |
+| GET | `/api/apps/:id/icon` | The icon image (`404` if none) |
+| GET | `/api/apps/:id/download` | The file as an attachment named `file_name`, with an `X-File-SHA256` header (`404` if no file) |
+
+The PC client lists a category with `GET /api/apps?category=…`, downloads with `.../download`, and verifies the file against `file_sha256` before keeping it.
 
 The four technician endpoints are also not in the original table — added because there was previously no way to provision or revoke a technician except shell access to the server box (`scripts/create-technician.js`), and no way for the dashboard to even list them (a gap this same document used to flag under "no technicians-list endpoint"). No auth on these either, same as the rest of this table — anyone who can reach the dashboard can mint a new technician API key, which is consistent with the whole dashboard's LAN-trust model (PROJECT_PLAN.md), not a new trust boundary.
 
