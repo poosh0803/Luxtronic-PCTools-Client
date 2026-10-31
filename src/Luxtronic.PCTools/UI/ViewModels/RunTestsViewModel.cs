@@ -138,13 +138,13 @@ public sealed partial class RunTestsViewModel : ObservableObject
         var controller = _controllers.GetOrCreate();
         if (controller is null)
         {
-            Warn("Cannot start", _controllers.Error ?? "The test controller is not available.");
+            await Warn("Cannot start", _controllers.Error ?? "The test controller is not available.");
             return;
         }
 
         if (string.IsNullOrWhiteSpace(Machine.RealMoboSerial))
         {
-            Warn("Cannot start",
+            await Warn("Cannot start",
                 "No motherboard serial available - cannot create a session without the PC's primary identity. See the Log page for details.");
             return;
         }
@@ -153,14 +153,14 @@ public sealed partial class RunTestsViewModel : ObservableObject
         {
             if (SelectedDrive is null)
             {
-                Warn("No drive selected", "Select a drive to benchmark first.");
+                await Warn("No drive selected", "Select a drive to benchmark first.");
                 return;
             }
 
             ApplyDefaultFolder(SelectedDrive);
             if (string.IsNullOrWhiteSpace(TargetFolder))
             {
-                Warn("No target folder",
+                await Warn("No target folder",
                     "Couldn't auto-detect a folder on the selected drive - type one manually (e.g. \"D:\\\") before starting.");
                 return;
             }
@@ -216,7 +216,7 @@ public sealed partial class RunTestsViewModel : ObservableObject
         catch (Exception ex)
         {
             _log.Append($"Test series ended with an error: {ex.Message}");
-            Warn("Error", $"Test series ended with an error:\n\n{ex.Message}", MessageBoxImage.Error);
+            await Warn("Error", $"Test series ended with an error:\n\n{ex.Message}");
         }
         finally
         {
@@ -304,6 +304,5 @@ public sealed partial class RunTestsViewModel : ObservableObject
         else dispatcher.BeginInvoke(action);
     }
 
-    private static void Warn(string title, string message, MessageBoxImage image = MessageBoxImage.Warning)
-        => MessageBox.Show(message, title, MessageBoxButton.OK, image);
+    private static Task Warn(string title, string message) => ThemedDialog.InfoAsync(title, message);
 }

@@ -59,6 +59,7 @@ public partial class App : Application
         services.AddSingleton<MachineService>();
         services.AddSingleton<ControllerProvider>();
         services.AddSingleton<RunState>();
+        services.AddSingleton<AppCatalogService>();
 
         // Windows / pages / view-models. Pages are singletons so a half-filled session form
         // survives navigating to another page and back.
@@ -70,6 +71,9 @@ public partial class App : Application
         services.AddSingleton<VramTestViewModel>();
         services.AddSingleton<RamTestViewModel>();
         services.AddSingleton<SsdTestViewModel>();
+        services.AddSingleton<AppsViewModel>();
+        services.AddSingleton<DriversViewModel>();
+        services.AddSingleton<ToolsViewModel>();
         services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<LogAboutViewModel>();
         services.AddSingleton<DashboardPage>();
@@ -79,6 +83,9 @@ public partial class App : Application
         services.AddSingleton<VramTestPage>();
         services.AddSingleton<RamTestPage>();
         services.AddSingleton<SsdTestPage>();
+        services.AddSingleton<AppsPage>();
+        services.AddSingleton<DriversPage>();
+        services.AddSingleton<ToolsPage>();
         services.AddSingleton<SettingsPage>();
         services.AddSingleton<LogAboutPage>();
     }
@@ -86,9 +93,21 @@ public partial class App : Application
     private static void OnUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         Log.Error(e.Exception, "Unhandled UI exception");
-        MessageBox.Show(e.Exception.Message, "Luxtronic PCTools - Unexpected error",
-            MessageBoxButton.OK, MessageBoxImage.Error);
         e.Handled = true;
+        _ = ShowUnexpectedErrorAsync(e.Exception.Message);
+    }
+
+    private static async Task ShowUnexpectedErrorAsync(string message)
+    {
+        try
+        {
+            await ThemedDialog.InfoAsync("Luxtronic PCTools - Unexpected error", message);
+        }
+        catch (Exception)
+        {
+            // No main window to host the themed dialog (a crash during startup): fall back to the plain one.
+            MessageBox.Show(message, "Luxtronic PCTools - Unexpected error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)

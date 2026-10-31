@@ -97,7 +97,7 @@ public abstract partial class SingleTestViewModel : ObservableObject
     {
         if (ValidateBeforeStart() is { } problem)
         {
-            System.Windows.MessageBox.Show(problem, Title, System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+            await ThemedDialog.InfoAsync(Title, problem);
             return;
         }
 

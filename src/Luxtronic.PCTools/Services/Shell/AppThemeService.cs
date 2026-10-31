@@ -1,4 +1,5 @@
 using System.IO;
+using System.Windows;
 using System.Text.Json;
 using Wpf.Ui.Appearance;
 
@@ -15,6 +16,30 @@ public sealed class AppThemeService
     private sealed class UiSettings { public ThemeChoice Theme { get; set; } = ThemeChoice.Dark; }
 
     public ThemeChoice Current { get; private set; } = ThemeChoice.Dark;
+
+    private readonly List<Window> _windows = new();
+
+    /// <summary>
+    /// Registers a window with the theme system. The window follows the OS theme only while the
+    /// choice is System; for Dark/Light the system watcher is detached (a permanently attached
+    /// watcher would force the OS theme at startup and ignore the saved choice).
+    /// </summary>
+    public void Register(Window window)
+    {
+        _windows.Add(window);
+        window.Closed += (_, _) => _windows.Remove(window);
+        // Watch/UnWatch need a loaded window (UnWatch throws before that), so a window registered
+        // from its constructor is synced once it has loaded.
+        if (window.IsLoaded) SyncWatcher(window);
+        else window.Loaded += (_, _) => SyncWatcher(window);
+    }
+
+    private void SyncWatcher(Window window)
+    {
+        if (!window.IsLoaded) return; // Apply() may run before a registered window has loaded; Loaded syncs it then
+        if (Current == ThemeChoice.System) SystemThemeWatcher.Watch(window);
+        else SystemThemeWatcher.UnWatch(window);
+    }
 
     public void ApplySaved()
     {
@@ -44,6 +69,7 @@ public sealed class AppThemeService
                 ? ApplicationTheme.Light : ApplicationTheme.Dark,
         };
         ApplicationThemeManager.Apply(theme);
+        foreach (var window in _windows.ToArray()) SyncWatcher(window);
 
         if (!save) return;
         try

@@ -15,7 +15,9 @@ public partial class MainWindow : FluentWindow
     private readonly ControllerProvider _controllers;
     private readonly Luxtronic.PCTools.Services.AppSettingsProvider _settings;
     private readonly LogService _log;
+    private readonly AppThemeService _theme;
     private bool _closing;
+    private bool _confirmingClose;
 
     public MainWindow(
         INavigationViewPageProvider pageProvider,
@@ -23,14 +25,16 @@ public partial class MainWindow : FluentWindow
         MachineService machine,
         ControllerProvider controllers,
         Luxtronic.PCTools.Services.AppSettingsProvider settings,
-        LogService log)
+        LogService log,
+        AppThemeService theme)
     {
+        _theme = theme;
         _settings = settings;
         _log = log;
         _machine = machine;
         _controllers = controllers;
 
-        SystemThemeWatcher.Watch(this);
+        _theme.Register(this);
         InitializeComponent();
 
         RootNavigation.SetPageProviderService(pageProvider);
@@ -42,10 +46,22 @@ public partial class MainWindow : FluentWindow
 
     private async void OnLoaded(object sender, System.Windows.RoutedEventArgs e)
     {
-        // First run: no API key yet, so start on Settings where it is entered.
+        // Fresh install: the three-field connection wizard first. Skipping it saves the defaults
+        // (so it is not shown again) and falls through to the Settings page below.
+        if (_settings.IsFirstRun)
+        {
+            var wizard = new FirstRunWindow(_settings, _theme) { Owner = this };
+            wizard.ShowDialog();
+            if (!wizard.Completed)
+            {
+                _settings.MarkSetupSeen();
+            }
+        }
+
+        // No API key yet (e.g. wizard skipped), so start on Settings where it is entered.
         // Deferred to idle: NavigationView selects its first item itself after Loaded, which
         // would otherwise override this and land on the Dashboard anyway.
-        var firstPage = _settings.ApiKey is null ? typeof(SettingsPage) : typeof(DashboardPage);
+        var firstPage = _settings.ApiKey is null && !_settings.OfflineMode ? typeof(SettingsPage) : typeof(DashboardPage);
         _ = Dispatcher.BeginInvoke(new Action(() => RootNavigation.Navigate(firstPage)),
             System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         await _machine.InitializeAsync();
@@ -60,11 +76,20 @@ public partial class MainWindow : FluentWindow
 
         if (_controllers.AnyRunning)
         {
-            var choice = System.Windows.MessageBox.Show("A test is still running. Stop it and close?", "Test in progress",
-                System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning);
-            if (choice != System.Windows.MessageBoxResult.Yes)
+            // The themed dialog is async, so the close is cancelled up front (the decision can't
+            // be made before this handler returns) and re-issued below once the technician agrees.
+            e.Cancel = true;
+            if (_confirmingClose)
             {
-                e.Cancel = true;
+                return;
+            }
+
+            _confirmingClose = true;
+            var stop = await ThemedDialog.ConfirmAsync("Test in progress",
+                "A test is still running. Stop it and close?", "Stop and close", "Keep running");
+            _confirmingClose = false;
+            if (!stop)
+            {
                 return;
             }
 

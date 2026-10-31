@@ -62,6 +62,19 @@
                         <controls:GeometryIcon Data="{x:Static controls:HardwareIcons.Ssd}" />
                     </ui:NavigationViewItem.Icon>
                 </ui:NavigationViewItem>
+                <ui:NavigationViewItemSeparator Margin="0,2,0,2" />
+                <ui:NavigationViewItem
+                    Content="Apps"
+                    Icon="{ui:SymbolIcon Box24}"
+                    TargetPageType="{x:Type pages:AppsPage}" />
+                <ui:NavigationViewItem
+                    Content="Drivers"
+                    Icon="{ui:SymbolIcon DeveloperBoard24}"
+                    TargetPageType="{x:Type pages:DriversPage}" />
+                <ui:NavigationViewItem
+                    Content="Tools"
+                    Icon="{ui:SymbolIcon Wrench24}"
+                    TargetPageType="{x:Type pages:ToolsPage}" />
             </ui:NavigationView.MenuItems>
             <ui:NavigationView.FooterMenuItems>
                 <ui:NavigationViewItem

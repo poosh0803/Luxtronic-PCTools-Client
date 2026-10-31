@@ -24,6 +24,7 @@ and [CONTRACT.md](CONTRACT.md) for the design and the API contract shared with t
 | **Dashboard** | This PC's identity and live sensors: CPU and GPU tiles with the model names, motherboard card (name, serial, BIOS), one card per drive (model, serial, firmware, health, temperature, hours, host reads/writes), server/API-key status and whether each bundled tool was found. |
 | **Run Tests** | Tick any combination of CPU / GPU / VRAM / RAM / SSD. They run **one after another in one server session**, every result is **submitted**. Shows the running test's own progress (percent, elapsed/remaining) and an overall bar. Customer name, new-build/repair and notes go here. |
 | **CPU, GPU, VRAM, RAM, SSD** | One tab per test. Runs that single test **on this PC only - nothing is sent to the server**. Shows live sensors, a progress card and a plain "last run" outcome line (not saved anywhere). SSD has the drive/folder picker. |
+| **Apps, Drivers, Tools** | Installers the server hosts, one list per category. Each entry shows its icon, name, version, description and file size; **Download** fetches it (progress, cancel, checked against the server's SHA-256) into `%LocalAppData%\LuxtronicPCTools\apps\`, `drivers\` or `tools\`, then the button becomes **Run** (launched through Windows, so UAC works) plus **Folder**. A newer upload on the server counts as not downloaded yet, and finishing the download deletes the older version. **Remove downloaded apps/drivers/tools** clears that category from this PC. A **Grid / List** switch changes the layout (shared by the three tabs for the session). Managed on the server's Apps / Drivers / Tools pages; none of this needs the API key. |
 | **Settings** | Server URL and API key, Offline mode, per-test durations, CPU load level, VRAM GPU number, background (hidden-window) switch, telemetry interval, theme, "Reset to defaults" and "Reset everything and restart". |
 | **Log / About** | The live status log (copy / clear / open log folder), version and logo. |
 
@@ -83,9 +84,12 @@ this whole folder and relaunches the exe.
 
 1. Launch the exe (accept the UAC prompt). It unpacks the tools, starts HWiNFO (minimized) and waits for its
    shared memory, then reads the sensors.
-2. It opens on **Settings** because there is no API key yet: paste the technician's key (issued by the
-   server) and press **Save and test connection**.
-3. The server URL defaults to `http://192.168.68.255:7777`.
+2. On a fresh install (no `settings.json` yet) a small **Server connection** window asks for just
+   a few things: the server URL (defaults to `http://192.168.68.255:7777`), the technician's API key (issued by the
+   server; optional when Offline mode is on), the **Offline mode** switch and the **theme** (Dark / Light /
+   System; it previews live). **Finish** saves and opens the
+   Dashboard; **Skip for now** (or closing it) saves the defaults and opens **Settings** instead, where the key
+   can be entered later. The window is not shown again unless the settings file is deleted ("Reset everything").
 
 ### Offline (dev) mode
 
@@ -128,13 +132,16 @@ src/Luxtronic.PCTools/
     TestSessionController.cs one server session per call, or RunSeriesAsync for several tests
     Prime95Runner / FurMarkRunner / TM5Runner / DiskSpdRunner / MemtestVulkanRunner   tool wrappers
     SensorMonitor / HwInfoSensorReader / SsdSmartReader   sensors and SMART
+    AppCatalogService.cs     lists/downloads the server's apps, drivers and tools (checksum check, old-version cleanup)
     SystemInfoCollector.cs   the system_info block;  MotherboardInfoReader.cs, SystemProbes.cs (RAM, disk speed)
     LuxApiClient / TelemetryPublisher   REST + WebSocket (both honour Offline mode)
     WindowHider.cs           hides tool windows;  Shell/ : MachineService, ControllerProvider, RunState,
-                             LogService, AppThemeService, ToolPack, HwInfoLauncher, AppReset, DriveCard, LiveStat
+                             LogService, AppThemeService, ToolPack, HwInfoLauncher, AppReset, DriveCard, LiveStat, ThemedDialog
   UI/
-    Windows/MainWindow       sidebar shell;  Pages/ : Dashboard, RunTests, Settings, LogAbout + one tab page per test
-    Controls/                SingleTestView (shared tab layout), GeometryIcon + HardwareIcons (sidebar icons)
+    Windows/MainWindow       sidebar shell;  FirstRunWindow (first-start connection wizard)
+    Pages/                   Dashboard, RunTests, Settings, LogAbout + one tab page per test + Apps, Drivers, Tools
+    Controls/                SingleTestView (shared tab layout), AppListView (list/grid UI shared by Apps/Drivers/Tools),
+                             GeometryIcon + HardwareIcons (sidebar icons)
     ViewModels/              one per page; SingleTestViewModel + CPU/GPU/VRAM/RAM/SSD subclasses
   Resources/                 Logo.png, Emblem.png (+ source art);  Logo.ico (exe icon)
 publish.bat                  builds the single-file exe

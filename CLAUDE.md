@@ -37,6 +37,15 @@ Luxtronic PCTools: a two-part hardware testing system in **separate git repos**:
   PostgreSQL (port `5434`), pm2 on the LAN box `192.168.68.255:7777`. Ingests telemetry, evaluates thresholds,
   serves the no-login dashboard and PDF reports.
 
+## Apps / Drivers / Tools
+
+The sidebar has Apps, Drivers and Tools tabs that download installers the server hosts (CONTRACT.md section 4,
+"Apps, drivers and tools"; uploaded on the server's own pages). They share `UI/Controls/AppListView.xaml`, one
+`AppListViewModel` base (Apps/Drivers/Tools subclasses differ only in category and wording) and
+`Services/AppCatalogService.cs`. These endpoints need no API key. Downloads are checksum-verified and older
+versions are deleted. Confirmation dialogs should use `Services/Shell/ThemedDialog`, not the classic MessageBox.
+First start shows `UI/Windows/FirstRunWindow` (URL, API key, offline mode only).
+
 ## Architecture points that span both sides
 
 - **Identity model**: a session is keyed by the PC's motherboard serial (read via WMI, never typed). Technicians
