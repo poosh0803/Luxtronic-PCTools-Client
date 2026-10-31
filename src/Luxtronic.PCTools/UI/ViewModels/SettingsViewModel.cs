@@ -128,11 +128,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private async Task ResetDefaultsAsync()
     {
-        var choice = MessageBox.Show(
+        var confirmed = await ThemedDialog.ConfirmAsync(
+            "Reset to defaults",
             "Reset the test durations, CPU load level, VRAM GPU number, telemetry interval, offline mode and theme to their defaults?\n\n" +
             "Your server URL and API key are not changed.",
-            "Reset to defaults", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (choice != MessageBoxResult.Yes)
+            "Reset", "Cancel");
+        if (!confirmed)
         {
             return;
         }
@@ -161,7 +162,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// test is running.
     /// </summary>
     [RelayCommand]
-    private void ResetEverything()
+    private async Task ResetEverything()
     {
         if (_controllers.AnyRunning)
         {
@@ -169,14 +170,15 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        var choice = MessageBox.Show(
+        var confirmed = await ThemedDialog.ConfirmAsync(
+            "Reset everything",
             "This deletes ALL of the app's saved data and restarts it:\n\n" +
             "  - your settings, including the server URL and API key\n" +
             "  - the log files\n" +
             "  - the unpacked test tools (they are unpacked again on restart)\n\n" +
             "You will need to enter the API key again. Continue?",
-            "Reset everything", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
-        if (choice != MessageBoxResult.Yes)
+            "Delete everything", "Cancel");
+        if (!confirmed)
         {
             return;
         }
@@ -190,8 +192,8 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         if (!willRestart)
         {
-            MessageBox.Show("The saved data will be deleted as the app closes. Start the app again yourself (it was run through the .NET host, so it can't relaunch itself).",
-                "Reset everything", MessageBoxButton.OK, MessageBoxImage.Information);
+            await ThemedDialog.InfoAsync("Reset everything",
+                "The saved data will be deleted as the app closes. Start the app again yourself (it was run through the .NET host, so it can't relaunch itself).");
         }
 
         // Closing through the main window runs its normal shutdown (stops HWiNFO, releases the log file),

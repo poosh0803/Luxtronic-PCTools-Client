@@ -1,5 +1,6 @@
 using System.Windows;
 using Luxtronic.PCTools.Services;
+using Luxtronic.PCTools.Services.Shell;
 using Wpf.Ui.Appearance;
 using Wpf.Ui.Controls;
 
@@ -13,12 +14,21 @@ namespace Luxtronic.PCTools.UI.Windows;
 public partial class FirstRunWindow : FluentWindow
 {
     private readonly AppSettingsProvider _settings;
+    private readonly AppThemeService _theme;
 
-    public FirstRunWindow(AppSettingsProvider settings)
+    public FirstRunWindow(AppSettingsProvider settings, AppThemeService theme)
     {
         _settings = settings;
-        SystemThemeWatcher.Watch(this);
+        _theme = theme;
+        _theme.Register(this);
         InitializeComponent();
+
+        ThemeBox.ItemsSource = Enum.GetValues<ThemeChoice>();
+        ThemeBox.SelectedItem = theme.Current;
+        ThemeBox.SelectionChanged += (_, _) =>
+        {
+            if (ThemeBox.SelectedItem is ThemeChoice choice) _theme.Apply(choice); // previews live and is saved
+        };
 
         ServerUrlBox.Text = settings.ServerBaseUrl;
         ApiKeyBox.Password = settings.ApiKey ?? "";

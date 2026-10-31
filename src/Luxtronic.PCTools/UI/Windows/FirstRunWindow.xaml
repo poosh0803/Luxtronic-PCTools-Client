@@ -27,7 +27,7 @@
             <ui:TextBlock
                 Margin="0,4,0,20"
                 Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                Text="Connect this PC to the Luxtronic server. You can change these later in Settings."
+                Text="Connect this PC to the Luxtronic server and pick a theme. You can change these later in Settings."
                 TextWrapping="Wrap" />
 
             <ui:TextBlock Margin="0,0,0,4" Text="Server URL" />
@@ -44,6 +44,9 @@
                 Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                 Text="Run tests without contacting the server - nothing is sent or recorded."
                 TextWrapping="Wrap" />
+
+            <ui:TextBlock Margin="0,16,0,4" Text="Theme" />
+            <ComboBox x:Name="ThemeBox" Width="200" HorizontalAlignment="Left" />
 
             <ui:TextBlock
                 x:Name="ErrorText"

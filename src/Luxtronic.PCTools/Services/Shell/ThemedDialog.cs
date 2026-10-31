@@ -24,4 +24,18 @@ public static class ThemedDialog
         var result = await box.ShowDialogAsync();
         return result == Wpf.Ui.Controls.MessageBoxResult.Primary;
     }
+
+    /// <summary>Shows a message with a single OK button over the main window.</summary>
+    public static async Task InfoAsync(string title, string message)
+    {
+        var box = new Wpf.Ui.Controls.MessageBox
+        {
+            Title = title,
+            Content = message,
+            CloseButtonText = "OK",
+            Owner = Application.Current?.MainWindow,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+        await box.ShowDialogAsync();
+    }
 }

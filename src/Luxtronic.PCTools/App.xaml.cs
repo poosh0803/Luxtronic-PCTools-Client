@@ -93,9 +93,21 @@ public partial class App : Application
     private static void OnUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         Log.Error(e.Exception, "Unhandled UI exception");
-        MessageBox.Show(e.Exception.Message, "Luxtronic PCTools - Unexpected error",
-            MessageBoxButton.OK, MessageBoxImage.Error);
         e.Handled = true;
+        _ = ShowUnexpectedErrorAsync(e.Exception.Message);
+    }
+
+    private static async Task ShowUnexpectedErrorAsync(string message)
+    {
+        try
+        {
+            await ThemedDialog.InfoAsync("Luxtronic PCTools - Unexpected error", message);
+        }
+        catch (Exception)
+        {
+            // No main window to host the themed dialog (a crash during startup): fall back to the plain one.
+            MessageBox.Show(message, "Luxtronic PCTools - Unexpected error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)

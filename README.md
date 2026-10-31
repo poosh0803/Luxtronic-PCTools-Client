@@ -84,9 +84,10 @@ this whole folder and relaunches the exe.
 
 1. Launch the exe (accept the UAC prompt). It unpacks the tools, starts HWiNFO (minimized) and waits for its
    shared memory, then reads the sensors.
-2. On a fresh install (no `settings.json` yet) a small **Server connection** window asks for just three
-   things: the server URL (defaults to `http://192.168.68.255:7777`), the technician's API key (issued by the
-   server; optional when Offline mode is on) and the **Offline mode** switch. **Finish** saves and opens the
+2. On a fresh install (no `settings.json` yet) a small **Server connection** window asks for just
+   a few things: the server URL (defaults to `http://192.168.68.255:7777`), the technician's API key (issued by the
+   server; optional when Offline mode is on), the **Offline mode** switch and the **theme** (Dark / Light /
+   System; it previews live). **Finish** saves and opens the
    Dashboard; **Skip for now** (or closing it) saves the defaults and opens **Settings** instead, where the key
    can be entered later. The window is not shown again unless the settings file is deleted ("Reset everything").
 
