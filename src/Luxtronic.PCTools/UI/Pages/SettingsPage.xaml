@@ -62,6 +62,11 @@
                         SelectedValue="{Binding CpuLoad}"
                         SelectedValuePath="Level" />
 
+                    <ui:ToggleSwitch
+                        Margin="0,0,0,16"
+                        Content="Run Prime95 and TestMem5 in the background (hide their windows during the CPU and RAM tests)"
+                        IsChecked="{Binding HideTools}" />
+
                     <ui:TextBlock Margin="0,0,0,4" Text="VRAM test GPU number (memtest_vulkan's list: 1 = first, 0 = auto)" />
                     <ui:TextBox
                         Width="100"
@@ -129,6 +134,24 @@
                             </Style>
                         </ui:TextBlock.Style>
                     </ui:TextBlock>
+                </StackPanel>
+            </ui:Card>
+
+            <!--  Danger zone  -->
+            <ui:Card Margin="0,0,0,12" BorderBrush="#E5484D" BorderThickness="1">
+                <StackPanel>
+                    <ui:TextBlock Margin="0,0,0,4" FontTypography="Subtitle" Foreground="#E5484D" Text="Reset everything" />
+                    <ui:TextBlock
+                        Margin="0,0,0,10"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        Text="Deletes the app's whole saved-data folder (settings including the API key, logs and the unpacked test tools) and restarts the app as if freshly installed. You will have to enter the API key again."
+                        TextWrapping="Wrap" />
+                    <ui:Button
+                        HorizontalAlignment="Left"
+                        Appearance="Danger"
+                        Command="{Binding ResetEverythingCommand}"
+                        Content="Reset everything and restart"
+                        Icon="{ui:SymbolIcon Delete24}" />
                 </StackPanel>
             </ui:Card>
 

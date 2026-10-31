@@ -112,10 +112,112 @@
                     <ui:TextBlock Margin="8,0,0,0" FontWeight="SemiBold" Text="{Binding StepText}" />
                 </StackPanel>
             </StackPanel>
-            <ui:TextBlock
-                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                Text="Test running - do not power off"
-                Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}" />
+            <ui:Card Margin="0,0,0,12" Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}">
+                <StackPanel>
+                    <Grid>
+                        <StackPanel>
+                            <ui:TextBlock
+                                FontWeight="SemiBold"
+                                Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                Text="{Binding StepCounterText}" />
+                            <StackPanel Orientation="Horizontal">
+                                <ui:TextBlock
+                                    VerticalAlignment="Bottom"
+                                    FontSize="30"
+                                    FontWeight="SemiBold"
+                                    Foreground="#DDA84B"
+                                    Text="{Binding StepPercentText}" />
+                                <ui:TextBlock
+                                    Margin="10,0,0,4"
+                                    VerticalAlignment="Bottom"
+                                    FontSize="16"
+                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                    Text="{Binding StepText}" />
+                            </StackPanel>
+                        </StackPanel>
+                        <StackPanel HorizontalAlignment="Right" VerticalAlignment="Bottom">
+                            <ui:TextBlock
+                                HorizontalAlignment="Right"
+                                FontWeight="SemiBold"
+                                Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                Text="{Binding StepElapsedText}" />
+                            <ui:TextBlock
+                                HorizontalAlignment="Right"
+                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                Text="{Binding StepRemainingText}" />
+                        </StackPanel>
+                    </Grid>
+                    <ProgressBar
+                        Height="10"
+                        Margin="0,10,0,0"
+                        Background="{DynamicResource ControlFillColorSecondaryBrush}"
+                        Foreground="#DDA84B"
+                        IsIndeterminate="{Binding StepIndeterminate}"
+                        Maximum="100"
+                        Value="{Binding StepProgress, Mode=OneWay}">
+                        <ProgressBar.Template>
+                            <ControlTemplate TargetType="ProgressBar">
+                                <Grid>
+                                    <Border Background="{TemplateBinding Background}" CornerRadius="5" />
+                                    <Border x:Name="PART_Track">
+                                        <Border
+                                            x:Name="PART_Indicator"
+                                            HorizontalAlignment="Left"
+                                            Background="{TemplateBinding Foreground}"
+                                            CornerRadius="5" />
+                                    </Border>
+                                </Grid>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsIndeterminate" Value="True">
+                                        <Setter TargetName="PART_Indicator" Property="HorizontalAlignment" Value="Stretch" />
+                                        <Setter TargetName="PART_Indicator" Property="Opacity" Value="0.4" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </ProgressBar.Template>
+                    </ProgressBar>
+
+                    <Grid Margin="0,14,0,0">
+                        <ui:TextBlock
+                            FontSize="12"
+                            Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                            Text="{Binding OverallText}" />
+                        <ui:TextBlock
+                            HorizontalAlignment="Right"
+                            FontSize="12"
+                            Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                            Text="Test running - do not power off" />
+                    </Grid>
+                    <ProgressBar
+                        Height="5"
+                        Margin="0,4,0,0"
+                        Background="{DynamicResource ControlFillColorSecondaryBrush}"
+                        Foreground="#8E8E8E"
+                        Maximum="100"
+                        Value="{Binding OverallProgress, Mode=OneWay}">
+                        <ProgressBar.Template>
+                            <ControlTemplate TargetType="ProgressBar">
+                                <Grid>
+                                    <Border Background="{TemplateBinding Background}" CornerRadius="5" />
+                                    <Border x:Name="PART_Track">
+                                        <Border
+                                            x:Name="PART_Indicator"
+                                            HorizontalAlignment="Left"
+                                            Background="{TemplateBinding Foreground}"
+                                            CornerRadius="5" />
+                                    </Border>
+                                </Grid>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsIndeterminate" Value="True">
+                                        <Setter TargetName="PART_Indicator" Property="HorizontalAlignment" Value="Stretch" />
+                                        <Setter TargetName="PART_Indicator" Property="Opacity" Value="0.4" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </ProgressBar.Template>
+                    </ProgressBar>
+                </StackPanel>
+            </ui:Card>
         </StackPanel>
     </ScrollViewer>
 </Page>

@@ -103,13 +103,18 @@ public sealed class TM5Runner
 
         ActivateConfigProfile(cfg.ConfigProfile, onLog);
 
+        // Background mode starts TM5 through the shell with a "hidden" show-state, which a program normally
+        // applies to its first window (see Prime95Runner). Output can't be redirected that way - fine here:
+        // TM5 is a GUI program that writes to Log.txt, not stdout, and that file is what gets read.
+        var redirect = !cfg.HideWindow;
         var psi = new ProcessStartInfo
         {
             FileName = ExePath,
             WorkingDirectory = _toolsDirectory,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
+            UseShellExecute = !redirect,
+            WindowStyle = redirect ? ProcessWindowStyle.Normal : ProcessWindowStyle.Hidden,
+            RedirectStandardOutput = redirect,
+            RedirectStandardError = redirect,
         };
 
         var stdout = new StringBuilder();
@@ -118,13 +123,25 @@ public sealed class TM5Runner
         // TM5 is a windowed GUI app, not console-subsystem - these events are expected to fire
         // rarely or never (unconfirmed either way, see class remarks). Kept for parity with
         // Prime95Runner/FurMarkRunner and in case a future TM5 version does write to stdout.
-        process.OutputDataReceived += (_, e) => { if (e.Data is not null) { lock (stdout) stdout.AppendLine(e.Data); } };
-        process.ErrorDataReceived += (_, e) => { if (e.Data is not null) { lock (stdout) stdout.AppendLine(e.Data); } };
+        if (redirect)
+        {
+            process.OutputDataReceived += (_, e) => { if (e.Data is not null) { lock (stdout) stdout.AppendLine(e.Data); } };
+            process.ErrorDataReceived += (_, e) => { if (e.Data is not null) { lock (stdout) stdout.AppendLine(e.Data); } };
+        }
 
         onLog($"Starting TM5 from {ExePath}, duration={cfg.DurationMinutes}min");
         process.Start();
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
+        if (redirect)
+        {
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+        }
+
+        using var hideCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        if (cfg.HideWindow)
+        {
+            _ = WindowHider.KeepHiddenAsync(process.Id, "TM5", onLog, hideCts.Token);
+        }
 
         var processExitTcs = new TaskCompletionSource();
         process.Exited += (_, _) => processExitTcs.TrySetResult();
@@ -178,6 +195,8 @@ public sealed class TM5Runner
                 // File may still be locked by the just-killed process - not fatal, stdout capture stands alone.
             }
         }
+
+        hideCts.Cancel();
 
         return new TM5RunResult
         {

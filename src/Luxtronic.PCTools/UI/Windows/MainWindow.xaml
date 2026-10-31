@@ -2,6 +2,7 @@
     x:Class="Luxtronic.PCTools.UI.Windows.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:Luxtronic.PCTools.UI.Controls"
     xmlns:pages="clr-namespace:Luxtronic.PCTools.UI.Pages"
     xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
     Title="Luxtronic PCTools"
@@ -36,26 +37,31 @@
                     Icon="{ui:SymbolIcon PlayCircle24}"
                     TargetPageType="{x:Type pages:RunTestsPage}" />
                 <ui:NavigationViewItemSeparator Margin="0,2,0,2" />
-                <ui:NavigationViewItem
-                    Content="CPU"
-                    Icon="{ui:SymbolIcon DeveloperBoard24}"
-                    TargetPageType="{x:Type pages:CpuTestPage}" />
-                <ui:NavigationViewItem
-                    Content="GPU"
-                    Icon="{ui:SymbolIcon Games24}"
-                    TargetPageType="{x:Type pages:GpuTestPage}" />
-                <ui:NavigationViewItem
-                    Content="VRAM"
-                    Icon="{ui:SymbolIcon CubeMultiple24}"
-                    TargetPageType="{x:Type pages:VramTestPage}" />
-                <ui:NavigationViewItem
-                    Content="RAM"
-                    Icon="{ui:SymbolIcon Server24}"
-                    TargetPageType="{x:Type pages:RamTestPage}" />
-                <ui:NavigationViewItem
-                    Content="SSD"
-                    Icon="{ui:SymbolIcon HardDrive24}"
-                    TargetPageType="{x:Type pages:SsdTestPage}" />
+                <ui:NavigationViewItem Content="CPU" TargetPageType="{x:Type pages:CpuTestPage}">
+                    <ui:NavigationViewItem.Icon>
+                        <controls:GeometryIcon Data="{x:Static controls:HardwareIcons.Cpu}" />
+                    </ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem Content="GPU" TargetPageType="{x:Type pages:GpuTestPage}">
+                    <ui:NavigationViewItem.Icon>
+                        <controls:GeometryIcon Data="{x:Static controls:HardwareIcons.Gpu}" />
+                    </ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem Content="VRAM" TargetPageType="{x:Type pages:VramTestPage}">
+                    <ui:NavigationViewItem.Icon>
+                        <controls:GeometryIcon Data="{x:Static controls:HardwareIcons.Vram}" />
+                    </ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem Content="RAM" TargetPageType="{x:Type pages:RamTestPage}">
+                    <ui:NavigationViewItem.Icon>
+                        <controls:GeometryIcon Data="{x:Static controls:HardwareIcons.Ram}" />
+                    </ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem Content="SSD" TargetPageType="{x:Type pages:SsdTestPage}">
+                    <ui:NavigationViewItem.Icon>
+                        <controls:GeometryIcon Data="{x:Static controls:HardwareIcons.Ssd}" />
+                    </ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
             </ui:NavigationView.MenuItems>
             <ui:NavigationView.FooterMenuItems>
                 <ui:NavigationViewItem

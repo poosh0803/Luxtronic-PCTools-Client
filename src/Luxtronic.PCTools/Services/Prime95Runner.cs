@@ -83,27 +83,49 @@ public sealed class Prime95Runner
 
         WritePrimeConfig(cfg);
 
+        // Background mode starts Prime95 through the shell with a "hidden" show-state, which a
+        // program normally applies to its first window - so the window may never appear at all. (Output
+        // can't be redirected that way; Prime95 is a GUI program that writes nothing to stdout, and its
+        // errors come from results.txt, which is read after the run.) The window-hiding loop below is the
+        // fallback if Prime95 ignores the show-state.
+        var redirect = !cfg.HideWindow;
         var psi = new ProcessStartInfo
         {
             FileName = ExePath,
             Arguments = "-t",
             WorkingDirectory = _toolsDirectory,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
+            UseShellExecute = !redirect,
+            WindowStyle = redirect ? ProcessWindowStyle.Normal : ProcessWindowStyle.Hidden,
+            RedirectStandardOutput = redirect,
+            RedirectStandardError = redirect,
+            CreateNoWindow = redirect,
         };
 
         var stdout = new StringBuilder();
         using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
 
-        process.OutputDataReceived += (_, e) => { if (e.Data is not null) { lock (stdout) stdout.AppendLine(e.Data); } };
-        process.ErrorDataReceived += (_, e) => { if (e.Data is not null) { lock (stdout) stdout.AppendLine(e.Data); } };
+        if (redirect)
+        {
+            process.OutputDataReceived += (_, e) => { if (e.Data is not null) { lock (stdout) stdout.AppendLine(e.Data); } };
+            process.ErrorDataReceived += (_, e) => { if (e.Data is not null) { lock (stdout) stdout.AppendLine(e.Data); } };
+        }
 
         onLog($"Starting Prime95 (-t) from {ExePath}, mode={cfg.Mode}{(cfg.DisableAvx ? " (AVX off)" : "")}, duration={cfg.DurationMinutes}min");
         process.Start();
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
+        if (redirect)
+        {
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+        }
+
+        // Prime95 is a normal Windows program with no hidden/silent switch, so "background" means
+        // hiding its window from here - repeatedly, since it creates and re-shows windows while
+        // starting up. A hidden window has no taskbar button either.
+        using var hideCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        if (cfg.HideWindow)
+        {
+            _ = WindowHider.KeepHiddenAsync(process.Id, "Prime95", onLog, hideCts.Token);
+        }
 
         var processExitTcs = new TaskCompletionSource();
         process.Exited += (_, _) => processExitTcs.TrySetResult();
@@ -162,6 +184,8 @@ public sealed class Prime95Runner
             }
         }
 
+        hideCts.Cancel();
+
         return new Prime95RunResult
         {
             ExitCode = process.HasExited ? process.ExitCode : null,
@@ -170,6 +194,57 @@ public sealed class Prime95Runner
             StopReason = stopReason,
             WasExternallyStopped = wasExternallyStopped,
         };
+    }
+
+    /// <summary>
+    /// Kills Prime95 / TestMem5 processes (by exe name, e.g. "prime95.exe") left behind by an app that crashed or was killed while a test ran -
+    /// with the window hidden they would otherwise keep the CPU loaded with nothing to see. Only our
+    /// own bundled copy is touched (matched by its folder), and only when its parent process is gone,
+    /// so a second running copy of this app is never disturbed.
+    /// </summary>
+    public static void KillStrayProcesses(string exeName, string toolsDirectory, Action<string> onLog)
+    {
+        try
+        {
+            using var searcher = new System.Management.ManagementObjectSearcher(
+                $"SELECT ProcessId, ParentProcessId, ExecutablePath FROM Win32_Process WHERE Name = '{exeName}'");
+            foreach (var item in searcher.Get().Cast<System.Management.ManagementObject>())
+            {
+                var path = item["ExecutablePath"] as string;
+                if (path is null || !path.StartsWith(toolsDirectory, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var pid = Convert.ToInt32(item["ProcessId"]);
+                var parent = Convert.ToInt32(item["ParentProcessId"]);
+                if (IsRunning(parent))
+                {
+                    continue; // still owned by a live app
+                }
+
+                using var stray = Process.GetProcessById(pid);
+                stray.Kill(entireProcessTree: true);
+                onLog($"Stopped a leftover {exeName} process (pid {pid}) from an earlier run.");
+            }
+        }
+        catch (Exception ex)
+        {
+            onLog($"Could not check for leftover {exeName} processes: {ex.Message}");
+        }
+    }
+
+    private static bool IsRunning(int pid)
+    {
+        try
+        {
+            using var p = Process.GetProcessById(pid);
+            return !p.HasExited;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     internal static int CountErrors(string output) => ErrorLinePattern.Matches(output).Count;

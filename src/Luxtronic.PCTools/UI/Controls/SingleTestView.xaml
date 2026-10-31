@@ -58,17 +58,58 @@
                 </StackPanel>
             </StackPanel>
 
-            <StackPanel Margin="0,0,0,12" Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}">
-                <ProgressBar
-                    Height="6"
-                    IsIndeterminate="{Binding ProgressIndeterminate}"
-                    Maximum="100"
-                    Value="{Binding ProgressPercent, Mode=OneWay}" />
-                <ui:TextBlock
-                    Margin="0,4,0,0"
-                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                    Text="{Binding ElapsedText}" />
-            </StackPanel>
+            <ui:Card Margin="0,0,0,12" Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}">
+                <StackPanel>
+                    <Grid>
+                        <ui:TextBlock
+                            VerticalAlignment="Bottom"
+                            FontSize="30"
+                            FontWeight="SemiBold"
+                            Foreground="#DDA84B"
+                            Text="{Binding PercentText}" />
+                        <StackPanel HorizontalAlignment="Right" VerticalAlignment="Bottom">
+                            <ui:TextBlock
+                                HorizontalAlignment="Right"
+                                FontWeight="SemiBold"
+                                Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                Text="{Binding ElapsedText}" />
+                            <ui:TextBlock
+                                HorizontalAlignment="Right"
+                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                Text="{Binding RemainingText}" />
+                        </StackPanel>
+                    </Grid>
+                    <ProgressBar
+                        Height="10"
+                        Margin="0,10,0,0"
+                        Background="{DynamicResource ControlFillColorSecondaryBrush}"
+                        Foreground="#DDA84B"
+                        IsIndeterminate="{Binding ProgressIndeterminate}"
+                        Maximum="100"
+                        Value="{Binding ProgressPercent, Mode=OneWay}">
+                        <ProgressBar.Template>
+                            <ControlTemplate TargetType="ProgressBar">
+                                <Grid>
+                                    <Border Background="{TemplateBinding Background}" CornerRadius="5" />
+                                    <Border x:Name="PART_Track">
+                                        <Border
+                                            x:Name="PART_Indicator"
+                                            HorizontalAlignment="Left"
+                                            Background="{TemplateBinding Foreground}"
+                                            CornerRadius="5" />
+                                    </Border>
+                                </Grid>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsIndeterminate" Value="True">
+                                        <Setter TargetName="PART_Indicator" Property="HorizontalAlignment" Value="Stretch" />
+                                        <Setter TargetName="PART_Indicator" Property="Opacity" Value="0.4" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </ProgressBar.Template>
+                    </ProgressBar>
+                </StackPanel>
+            </ui:Card>
 
             <ui:Card Margin="0,0,0,12" Visibility="{Binding HasLiveStats, Converter={StaticResource BoolToVis}}">
                 <StackPanel>

@@ -104,6 +104,11 @@ public sealed partial class MachineService : ObservableObject, IDisposable
         {
             SensorStatus = "Preparing bundled tools...";
             await ToolPack.EnsureExtractedAsync(_log.Append);
+            await Task.Run(() =>
+            {
+                Prime95Runner.KillStrayProcesses("prime95.exe", _settings.ToolsDirectory, _log.Append);
+                Prime95Runner.KillStrayProcesses("TM5.exe", _settings.RamToolsDirectory, _log.Append);
+            });
             SensorStatus = "Starting HWiNFO...";
             await _hwInfo.EnsureRunningAsync(_settings.HwInfoDirectory, _log.Append);
         }

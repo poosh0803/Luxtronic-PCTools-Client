@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Windows.Threading;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -34,6 +35,7 @@ public sealed partial class RunTestsViewModel : ObservableObject
         controllers.Changed += RefreshDurations; // raised after Settings are saved
         state.PropertyChanged += OnDependencyChanged;
         machine.PropertyChanged += OnDependencyChanged;
+        _stepTimer.Tick += (_, _) => UpdateStepProgress();
         RefreshDurations();
         if (machine.IsInitialized) OnMachineInitialized();
     }
@@ -70,7 +72,22 @@ public sealed partial class RunTestsViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand))]
     private bool _isRunning;
 
+    // Progress of the test that is running right now (the main bar), plus an overall bar across all ticked tests.
     [ObservableProperty] private string _stepText = "";
+    [ObservableProperty] private string _stepCounterText = "";
+    [ObservableProperty] private double _stepProgress;
+    [ObservableProperty] private bool _stepIndeterminate;
+    [ObservableProperty] private string _stepPercentText = "";
+    [ObservableProperty] private string _stepElapsedText = "";
+    [ObservableProperty] private string _stepRemainingText = "";
+    [ObservableProperty] private double _overallProgress;
+    [ObservableProperty] private string _overallText = "";
+
+    private readonly DispatcherTimer _stepTimer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private DateTime _stepStartedAt;
+    private TimeSpan? _stepDuration; // null for a test with no fixed length (SSD)
+    private int _stepIndex;
+    private int _stepTotal;
 
     public bool CanEdit => !IsRunning;
 
@@ -192,7 +209,7 @@ public sealed partial class RunTestsViewModel : ObservableObject
         {
             await controller.RunSeriesAsync(
                 request, tests, SelectedDrive, TargetFolder.Trim(), _log.Append,
-                onStep: (test, index, total) => OnUi(() => StepText = $"Running {Label(test)} - test {index} of {total}"),
+                onStep: (test, index, total) => OnUi(() => BeginStep(test, index, total)),
                 onCpu: Machine.UpdateCpu, onGpu: Machine.UpdateGpu, onRam: Machine.UpdateRam,
                 onSsdSpeed: Machine.UpdateSsdSpeed);
         }
@@ -203,7 +220,15 @@ public sealed partial class RunTestsViewModel : ObservableObject
         }
         finally
         {
+            _stepTimer.Stop();
             StepText = "";
+            StepCounterText = "";
+            StepProgress = 0;
+            StepPercentText = "";
+            StepElapsedText = "";
+            StepRemainingText = "";
+            OverallProgress = 0;
+            OverallText = "";
             IsRunning = false;
             _state.End();
         }
@@ -216,6 +241,52 @@ public sealed partial class RunTestsViewModel : ObservableObject
         _log.Append("Stop requested by technician - finishing the current test and skipping the rest...");
         StepText = "Stopping...";
     }
+
+    private void BeginStep(TestKind test, int index, int total)
+    {
+        _stepIndex = index;
+        _stepTotal = total;
+        _stepStartedAt = DateTime.Now;
+        _stepDuration = test switch
+        {
+            TestKind.Cpu => TimeSpan.FromMinutes(_settings.CpuDurationMinutes),
+            TestKind.Gpu => TimeSpan.FromMinutes(_settings.GpuDurationMinutes),
+            TestKind.Vram => TimeSpan.FromMinutes(_settings.VramDurationMinutes),
+            TestKind.Ram => TimeSpan.FromMinutes(_settings.RamDurationMinutes),
+            _ => null, // SSD runs until both passes finish
+        };
+        StepText = Label(test);
+        StepCounterText = $"Test {index} of {total}";
+        StepIndeterminate = _stepDuration is null;
+        UpdateStepProgress();
+        _stepTimer.Start();
+    }
+
+    private void UpdateStepProgress()
+    {
+        var elapsed = DateTime.Now - _stepStartedAt;
+        double fraction = 0;
+        if (_stepDuration is { } total && total > TimeSpan.Zero)
+        {
+            fraction = Math.Min(1, elapsed.TotalSeconds / total.TotalSeconds);
+            StepProgress = fraction * 100;
+            StepPercentText = $"{(int)StepProgress}%";
+            StepElapsedText = $"Elapsed {FormatSpan(elapsed)} of {FormatSpan(total)}";
+            var remaining = total - elapsed;
+            StepRemainingText = remaining > TimeSpan.Zero ? $"{FormatSpan(remaining)} remaining" : "finishing up...";
+        }
+        else
+        {
+            StepPercentText = "";
+            StepElapsedText = $"Elapsed {FormatSpan(elapsed)}";
+            StepRemainingText = "";
+        }
+
+        OverallProgress = ((_stepIndex - 1) + fraction) * 100.0 / Math.Max(1, _stepTotal);
+        OverallText = $"Overall: {_stepIndex - 1} of {_stepTotal} tests done";
+    }
+
+    private static string FormatSpan(TimeSpan t) => t.TotalHours >= 1 ? $"{(int)t.TotalHours}:{t.Minutes:D2}:{t.Seconds:D2}" : $"{t.Minutes}:{t.Seconds:D2}";
 
     private static string Label(TestKind test) => test switch
     {

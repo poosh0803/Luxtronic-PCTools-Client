@@ -7,13 +7,13 @@ namespace Luxtronic.PCTools.Services;
 /// <summary>How hard the CPU (Prime95) test loads the processor. Chosen in Settings, not by the server.</summary>
 public enum CpuLoadLevel
 {
-    /// <summary>Prime95 "blend" - mixed CPU and memory stress. The default.</summary>
+    /// <summary>Prime95 "blend" - mixed CPU and memory stress.</summary>
     Blend,
 
     /// <summary>Prime95 "small FFT" - fits in cache, maximum heat and power. Cooler/PSU worst case.</summary>
     MaxHeat,
 
-    /// <summary>Blend with AVX/AVX2/FMA3/AVX-512 switched off - far less heat and power, closer to heavy real-world use.</summary>
+    /// <summary>Blend with AVX/AVX2/FMA3/AVX-512 switched off - far less heat and power, closer to heavy real-world use. The default.</summary>
     BlendNoAvx,
 }
 
@@ -59,7 +59,12 @@ public sealed class AppSettingsProvider
     /// fetch, session, test-run or telemetry calls - see LuxApiClient/TelemetryPublisher).</summary>
     public bool OfflineMode { get; private set; }
 
-    public CpuLoadLevel CpuLoad { get; private set; } = CpuLoadLevel.Blend;
+    public const CpuLoadLevel DefaultCpuLoad = CpuLoadLevel.BlendNoAvx;
+
+    public CpuLoadLevel CpuLoad { get; private set; } = DefaultCpuLoad;
+
+    /// <summary>Hide Prime95's window during the CPU test (it runs in the background). On by default.</summary>
+    public bool HideToolWindows { get; private set; } = true;
 
     public const int DefaultVramMinutes = 10;
     public const int DefaultVramDeviceIndex = 1;
@@ -91,7 +96,8 @@ public sealed class AppSettingsProvider
                     settings.ServerBaseUrl = Normalize(raw.ServerBaseUrl) ?? DefaultServerUrl;
                     settings.ApiKey = string.IsNullOrWhiteSpace(raw.ApiKey) ? null : raw.ApiKey.Trim();
                     settings.OfflineMode = raw.OfflineMode == true;
-                    settings.CpuLoad = Enum.TryParse<CpuLoadLevel>(raw.CpuLoadLevel, out var load) ? load : CpuLoadLevel.Blend;
+                    settings.HideToolWindows = raw.HideToolWindows ?? raw.HidePrimeWindow ?? true;
+                    settings.CpuLoad = Enum.TryParse<CpuLoadLevel>(raw.CpuLoadLevel, out var load) ? load : DefaultCpuLoad;
                     settings.VramDurationMinutes = ValidMinutes(raw.VramMinutes) ?? DefaultVramMinutes;
                     settings.VramDeviceIndex = raw.VramDeviceIndex is >= 0 and <= 16 ? raw.VramDeviceIndex.Value : DefaultVramDeviceIndex;
                     settings.CpuDurationMinutes = ValidMinutes(raw.CpuMinutes) ?? DefaultCpuMinutes;
@@ -125,7 +131,7 @@ public sealed class AppSettingsProvider
 
     /// <summary>Validates and stores new values. Returns an error message, or null on success.</summary>
     public string? Update(string serverUrl, string? apiKey, int telemetryIntervalMs, int cpuMinutes, int gpuMinutes, int ramMinutes,
-        int vramMinutes, int vramDeviceIndex, bool offlineMode, CpuLoadLevel cpuLoad)
+        int vramMinutes, int vramDeviceIndex, bool offlineMode, CpuLoadLevel cpuLoad, bool hidePrimeWindow)
     {
         if (ValidMinutes(vramMinutes) is null)
         {
@@ -156,6 +162,7 @@ public sealed class AppSettingsProvider
         TelemetrySampleIntervalMs = telemetryIntervalMs;
         OfflineMode = offlineMode;
         CpuLoad = cpuLoad;
+        HideToolWindows = hidePrimeWindow;
         VramDurationMinutes = vramMinutes;
         VramDeviceIndex = vramDeviceIndex;
         CpuDurationMinutes = cpuMinutes;
@@ -180,7 +187,7 @@ public sealed class AppSettingsProvider
         {
             Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
             File.WriteAllText(SettingsPath,
-                JsonSerializer.Serialize(new StoredSettings { ServerBaseUrl = ServerBaseUrl, ApiKey = ApiKey, TelemetryIntervalMs = TelemetrySampleIntervalMs, CpuMinutes = CpuDurationMinutes, GpuMinutes = GpuDurationMinutes, RamMinutes = RamDurationMinutes, VramMinutes = VramDurationMinutes, VramDeviceIndex = VramDeviceIndex, OfflineMode = OfflineMode, CpuLoadLevel = CpuLoad.ToString() }, JsonOptions));
+                JsonSerializer.Serialize(new StoredSettings { ServerBaseUrl = ServerBaseUrl, ApiKey = ApiKey, TelemetryIntervalMs = TelemetrySampleIntervalMs, CpuMinutes = CpuDurationMinutes, GpuMinutes = GpuDurationMinutes, RamMinutes = RamDurationMinutes, VramMinutes = VramDurationMinutes, VramDeviceIndex = VramDeviceIndex, OfflineMode = OfflineMode, CpuLoadLevel = CpuLoad.ToString(), HideToolWindows = HideToolWindows }, JsonOptions));
             return true;
         }
         catch (Exception)
@@ -206,5 +213,7 @@ public sealed class AppSettingsProvider
         public int? VramDeviceIndex { get; set; }
         public bool? OfflineMode { get; set; }
         public string? CpuLoadLevel { get; set; }
+        public bool? HideToolWindows { get; set; }
+        public bool? HidePrimeWindow { get; set; } // old name, still read so an earlier choice carries over
     }
 }

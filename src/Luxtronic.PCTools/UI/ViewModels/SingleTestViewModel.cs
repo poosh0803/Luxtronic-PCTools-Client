@@ -64,6 +64,8 @@ public abstract partial class SingleTestViewModel : ObservableObject
     private bool _isRunning;
 
     [ObservableProperty] private string _elapsedText = "";
+    [ObservableProperty] private string _percentText = "";
+    [ObservableProperty] private string _remainingText = "";
     [ObservableProperty] private double _progressPercent;
     [ObservableProperty] private bool _progressIndeterminate;
     [ObservableProperty] private string _resultText = "";
@@ -155,11 +157,16 @@ public abstract partial class SingleTestViewModel : ObservableObject
         {
             var total = TimeSpan.FromMinutes(minutes);
             ProgressPercent = Math.Min(100, elapsed.TotalSeconds / total.TotalSeconds * 100);
-            ElapsedText = $"{Format(elapsed)} of {Format(total)}";
+            PercentText = $"{(int)ProgressPercent}%";
+            ElapsedText = $"Elapsed {Format(elapsed)} of {Format(total)}";
+            var remaining = total - elapsed;
+            RemainingText = remaining > TimeSpan.Zero ? $"{Format(remaining)} remaining" : "finishing up...";
         }
         else
         {
-            ElapsedText = $"{Format(elapsed)} elapsed";
+            PercentText = "";
+            ElapsedText = $"Elapsed {Format(elapsed)}";
+            RemainingText = "";
         }
     }
 

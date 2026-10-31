@@ -73,6 +73,10 @@ public sealed class CpuConfig
     /// disabled. Set from Settings' CPU load level.</summary>
     [JsonIgnore]
     public bool DisableAvx { get; set; }
+
+    /// <summary>Local only: hide Prime95's window while it runs (it has no silent mode of its own).</summary>
+    [JsonIgnore]
+    public bool HideWindow { get; set; }
 }
 
 /// <summary>No "mode" field, unlike CpuConfig - CONTRACT.md §3's gpu subtree is just tool/duration/
@@ -108,6 +112,10 @@ public sealed class RamConfig
 
     [JsonPropertyName("max_errors")]
     public int MaxErrors { get; set; } = 0;
+
+    /// <summary>Local only: hide TestMem5's window while it runs (see AppSettingsProvider.HideToolWindows).</summary>
+    [JsonIgnore]
+    public bool HideWindow { get; set; }
 }
 
 /// <summary>

@@ -32,6 +32,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _vramDevice = settings.VramDeviceIndex.ToString();
         _offlineMode = settings.OfflineMode;
         _cpuLoad = settings.CpuLoad;
+        _hideTools = settings.HideToolWindows;
         Rows = new[]
         {
             new SettingRow("Settings file", AppSettingsProvider.SettingsPath),
@@ -64,12 +65,15 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public IReadOnlyList<LoadLevelOption> LoadLevels { get; } = new[]
     {
-        new LoadLevelOption(CpuLoadLevel.Blend, "Blend (default) - mixed CPU and memory stress"),
+        new LoadLevelOption(CpuLoadLevel.Blend, "Blend - mixed CPU and memory stress"),
         new LoadLevelOption(CpuLoadLevel.MaxHeat, "Max heat (small FFT) - hottest, for cooler and power checks"),
-        new LoadLevelOption(CpuLoadLevel.BlendNoAvx, "Blend, AVX off - lower heat, closer to real-world use"),
+        new LoadLevelOption(CpuLoadLevel.BlendNoAvx, "Blend, AVX off (default) - lower heat, closer to real-world use"),
     };
 
     [ObservableProperty] private CpuLoadLevel _cpuLoad;
+
+    /// <summary>Run Prime95 in the background (its window hidden) during the CPU test.</summary>
+    [ObservableProperty] private bool _hideTools;
 
     /// <summary>Dev switch: run tests without contacting the server.</summary>
     [ObservableProperty] private bool _offlineMode;
@@ -139,7 +143,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         VramMinutes = AppSettingsProvider.DefaultVramMinutes.ToString();
         VramDevice = AppSettingsProvider.DefaultVramDeviceIndex.ToString();
         TelemetryInterval = AppSettingsProvider.DefaultTelemetryIntervalMs.ToString();
-        CpuLoad = CpuLoadLevel.Blend;
+        CpuLoad = AppSettingsProvider.DefaultCpuLoad;
+        HideTools = true;
         OfflineMode = false;
         SelectedTheme = ThemeChoice.Dark;
 
@@ -148,6 +153,50 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             Report("Defaults restored and saved. Server URL and API key were left as they are.", isError: false);
         }
+    }
+
+    /// <summary>
+    /// Deletes the whole app data folder (see <see cref="AppReset"/>) and restarts the app. Destructive -
+    /// settings, the API key, logs and the unpacked tools all go - so it asks first and refuses while a
+    /// test is running.
+    /// </summary>
+    [RelayCommand]
+    private void ResetEverything()
+    {
+        if (_controllers.AnyRunning)
+        {
+            Report("A test is running - stop it before resetting everything.", isError: true);
+            return;
+        }
+
+        var choice = MessageBox.Show(
+            "This deletes ALL of the app's saved data and restarts it:\n\n" +
+            "  - your settings, including the server URL and API key\n" +
+            "  - the log files\n" +
+            "  - the unpacked test tools (they are unpacked again on restart)\n\n" +
+            "You will need to enter the API key again. Continue?",
+            "Reset everything", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+        if (choice != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        var error = AppReset.ScheduleWipeAndRestart(out var willRestart);
+        if (error is not null)
+        {
+            Report(error, isError: true);
+            return;
+        }
+
+        if (!willRestart)
+        {
+            MessageBox.Show("The saved data will be deleted as the app closes. Start the app again yourself (it was run through the .NET host, so it can't relaunch itself).",
+                "Reset everything", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        // Closing through the main window runs its normal shutdown (stops HWiNFO, releases the log file),
+        // after which the helper deletes the folder and relaunches the exe.
+        Application.Current.MainWindow?.Close();
     }
 
     [RelayCommand]
@@ -205,7 +254,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             return "VRAM test device must be a whole number.";
         }
 
-        var error = _settings.Update(ServerUrl, ApiKey, interval, cpu, gpu, ram, vram, vramDevice, OfflineMode, CpuLoad);
+        var error = _settings.Update(ServerUrl, ApiKey, interval, cpu, gpu, ram, vram, vramDevice, OfflineMode, CpuLoad, HideTools);
         if (error is null)
         {
             TelemetryInterval = _settings.TelemetrySampleIntervalMs.ToString();

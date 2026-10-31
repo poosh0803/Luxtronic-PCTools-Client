@@ -88,9 +88,14 @@ public sealed class TestSessionController : IAsyncDisposable
             cpu.DurationMinutes = _settings.CpuDurationMinutes;
             cpu.Mode = _settings.CpuLoad == CpuLoadLevel.MaxHeat ? "small_fft" : "blend";
             cpu.DisableAvx = _settings.CpuLoad == CpuLoadLevel.BlendNoAvx;
+            cpu.HideWindow = _settings.HideToolWindows;
         }
         if (config.Gpu is { } gpu) gpu.DurationMinutes = _settings.GpuDurationMinutes;
-        if (config.Ram is { } ram) ram.DurationMinutes = _settings.RamDurationMinutes;
+        if (config.Ram is { } ram)
+        {
+            ram.DurationMinutes = _settings.RamDurationMinutes;
+            ram.HideWindow = _settings.HideToolWindows;
+        }
         return config;
     }
 
