@@ -1,3 +1,5 @@
+> **LEGACY (v1).** This documents the previous client that now lives in `v1/`. The current app is at the repo root - see the top-level README.md.
+
 # Session Handoff
 
 Written because the previous session's context window filled up. Read this before doing anything

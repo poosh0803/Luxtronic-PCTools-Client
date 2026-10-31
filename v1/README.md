@@ -1,3 +1,5 @@
+> **LEGACY (v1).** This documents the previous client that now lives in `v1/`. The current app is at the repo root - see the top-level README.md.
+
 # Luxtronic-PCTools-Client
 
 The PC-side client of the Luxtronic PCTools hardware-testing system. Runs on the machine

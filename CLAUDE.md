@@ -4,38 +4,62 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-**Active development — real code exists here.** This is the `Luxtronic-PCTools-Client` repo
-specifically (WPF app, `src/Luxtronic.PCTools/`), not the shared planning repo this file's
-boilerplate below still describes. **Read [HANDOFF.md](HANDOFF.md) first** — it's a
-session-by-session account of what's built, what's pending, and hard-won debugging context from
-testing on real hardware (multiple technician PCs/laptops, not just this dev box) that isn't
-written down anywhere else. [README.md](README.md) has full build/run/test/deploy instructions.
-[PROJECT_PLAN.md](PROJECT_PLAN.md) is still the source-of-truth for architecture/scope decisions,
-and [CONTRACT.md](CONTRACT.md) is the frozen API/DB/config contract shared with the server side —
-treat it as canonical, not a suggestion.
+This is the `Luxtronic-PCTools-Client` repo: the **rebuilt (v2) WPF client** in `src/Luxtronic.PCTools/`
+(.NET 10, WPF-UI, MVVM + DI + Serilog, one self-contained exe with the test tools embedded). The previous
+client lives in `v1/` for reference only (its README.md / HANDOFF.md are legacy; its 119 xUnit tests have
+not been ported, so root `tests/` is empty).
 
-Quick commands (see README.md for the full picture, `dev-menu.ps1` for an interactive menu
-covering all of this plus API key / server URL / CPU duration setup):
+Read [README.md](README.md) first (features, build/publish, tool pack, settings, known gaps and the repo
+layout). [PROJECT_PLAN.md](PROJECT_PLAN.md) is the source of truth for architecture/scope (its last section
+records what changed since it was written) and [CONTRACT.md](CONTRACT.md) is the API/DB/config contract
+shared with the server repo - the server's copy is canonical and the two files must stay identical.
+
+## Commands
 
 ```powershell
-dotnet build LuxtronicPCTools.sln
-dotnet test LuxtronicPCTools.sln
-powershell -ExecutionPolicy Bypass -File .\dev-menu.ps1   # or double-click dev-menu.bat
+dotnet build LuxtronicPCTools.sln     # needs the .NET 10 SDK
+publish.bat                           # single-file exe -> publish\win-x64\ (close the running app first)
 ```
+
+No automated tests exist yet. Run the exe elevated (it requests admin itself); the **Offline mode** switch in
+Settings lets you exercise the whole UI without a server.
 
 ## What this project is
 
-Luxtronic PCTools: a two-part hardware testing system, split into two **separate git repos** (not subdirectories of this one — this repo is planning/contract docs only):
+Luxtronic PCTools: a two-part hardware testing system in **separate git repos**:
 
-- **`Luxtronic-PCTools-Client`** (`C:\Users\Admin\Documents\Github\Luxtronic-PCTools-Client`, git-initialized, no commits yet) — C#/.NET WPF, runs on Windows 11/10 machines under test (new builds and customer repairs). Technician-operated, no customer-facing UI. Runs Prime95 (CPU), FurMark (GPU), TestMem5 (RAM), CrystalDiskMark/CrystalDiskInfo (SSD) as external processes bundled in its own install folder (pinned versions, no runtime download), reads sensors via LibreHardwareMonitorLib, and streams everything to the server. It does **not** decide pass/fail — that's server-side.
-- **`Luxtronic-PCTools-Server`** (`C:\Users\Admin\Documents\Github\Luxtronic-PCTools-Server`, git-initialized, no commits yet) — Node.js/Express + PostgreSQL (own instance on port `5434`, separate from the other services' Postgres on `5432`/`5433`), deployed via the same pm2 pattern as the other Luxtronic LAN services (`lan-portal-deploy`: git pull + pm2 restart), listening on `192.168.68.255:7777`. Ingests telemetry, evaluates results against a config file of thresholds, and serves a live-updating web dashboard (no login — LAN-trust only) for reviewing sessions and exporting PDF reports.
-
-**Build order**: a single CPU-only vertical slice end-to-end first (client → server → live dashboard view → PDF export), to prove the sensor driver works on real Windows 11 hardware and that CONTRACT.md holds up, before parallelizing the GPU/RAM/SSD wrappers. See PROJECT_PLAN.md §9 for why.
+- **`Luxtronic-PCTools-Client`** (this repo) - runs on Windows 11/10 machines under test (new builds and
+  customer repairs), operated by a technician. Runs Prime95 (CPU), FurMark (GPU), memtest_vulkan (VRAM),
+  TestMem5 (RAM) and DiskSpd (SSD) as external processes unpacked from the exe's embedded tool pack, reads
+  sensors from HWiNFO shared memory (+ LibreHardwareMonitor for SSD SMART), and streams to the server. It does
+  **not** decide pass/fail.
+- **`Luxtronic-PCTools-Server`** (`C:\Users\Admin\Documents\Github\Luxtronic-PCTools-Server`) - Node.js/Express +
+  PostgreSQL (port `5434`), pm2 on the LAN box `192.168.68.255:7777`. Ingests telemetry, evaluates thresholds,
+  serves the no-login dashboard and PDF reports.
 
 ## Architecture points that span both sides
 
-- **Identity model**: a test session is keyed by the PC's motherboard serial number (read on the client, not user-entered). Technicians are identified by a static API key file, one per technician — this key is how the server attributes a session to whoever ran it.
-- **Config flows one direction**: from server to client. The client fetches thresholds/durations at session start and just executes; the server is the only place that holds/evaluates pass/fail logic. Don't add client-side pass/fail logic — it belongs server-side by design.
-- **Test concurrency rule**: CPU and GPU tests may run simultaneously or individually; RAM and SSD tests must always run exclusively (never concurrently with anything else). This is a real constraint from test validity, not an arbitrary UI limitation — preserve it in any orchestration code.
-- **No results on the PC side.** All review/export happens through the server's web dashboard. Don't add report-viewing or result UI to the PC-side client.
-- **Third-party test tools are licensed for internal use only** (notably FurMark's free tier explicitly excludes commercial applications — acceptable here only because usage stays internal/unshipped). Do not bundle, redistribute, or sell any part of this tool without re-checking those licenses.
+- **Identity model**: a session is keyed by the PC's motherboard serial (read via WMI, never typed). Technicians
+  are identified by a per-technician API key (stored in the client's `settings.json`).
+- **Pass/fail lives on the server only.** The client fetches thresholds at session start. The exception is
+  the *run parameters*: durations, CPU load mode/AVX and the VRAM GPU number are **local settings** that override
+  the server config's values; the client reports what it really used in `run_settings` (POST test-run and PATCH
+  completion) so the server/PDF show true values.
+- **Two ways to run tests**: the per-test tabs (CPU/GPU/VRAM/RAM/SSD) run locally and submit nothing; **Run Tests**
+  runs the ticked tests in series (fixed order CPU, GPU, VRAM, RAM, SSD) inside ONE server session and submits
+  everything. Keep both paths behind the `TestSessionController` and the shared `AnyRunning` / `RunState` guard
+  so two runs can never overlap.
+- **Concurrency rule**: CPU and GPU may overlap in principle; GPU and VRAM never; RAM and SSD always exclusive.
+  The client currently runs everything sequentially, which satisfies the rule.
+- **`system_info`** (CPU, GPU, RAM modules, board/BIOS, drives, OS) is collected on the client and sent with the
+  session so the report can show the PC spec.
+- **No results on the PC side.** Single-test tabs show only a plain local "last run" outcome line, never
+  pass/fail from a threshold. Review/export happens in the server dashboard.
+- **Third-party tools are licensed for internal use only** (FurMark's free tier excludes commercial use and says
+  "may not alter" - the bundle is trimmed). Don't redistribute or sell without re-checking licenses.
+
+## Working notes
+
+- Never overwrite or kill the user's running `Luxtronic.PCTools.exe`: publish to a side folder if it is running.
+- The user's `Luxtronic.PCTools.exe - Shortcut.lnk` in the repo root is untracked and must stay out of git.
+- Commit/push/deploy only when asked. After server-side changes, restart the local pm2 service.

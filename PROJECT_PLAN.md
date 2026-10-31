@@ -86,3 +86,29 @@ Dropped from current workflow: Cinebench R23 (optional secondary benchmark score
 
 - **Two separate repos**: `Luxtronic-PCTools-Client` (the WPF app) and `Luxtronic-PCTools-Server` (the Node/Postgres service), both under `C:\Users\Admin\Documents\Github`, already `git init`'d. This matches the existing convention where `lan-portal-deploy` git-pulls and pm2-restarts each service by its own repo name — the server plugs straight into that workflow unchanged.
 - **Build order: walking skeleton first.** Before building all four test-tool wrappers and the full dashboard, build one complete vertical slice end-to-end for CPU only: client reads sensors + runs Prime95 → streams telemetry to the server over the CONTRACT.md WebSocket → server stores it and evaluates pass/fail → dashboard shows the live view and exports a PDF. This proves the sensor-driver risk above, and proves the whole contract works, while it's still cheap to fix. GPU/RAM/SSD wrappers and dashboard polish are added afterward, in parallel, once the skeleton works on a real machine.
+
+## 10. Current state (changes since this plan was written)
+
+The walking skeleton (section 9) was completed and both sides have since grown. Where this section
+disagrees with the text above, this section wins.
+
+- **Client rebuilt** (.NET 10 WPF, WPF-UI, MVVM/DI/Serilog) as one self-contained exe with the tool pack
+  embedded and unpacked to `%LocalAppData%\LuxtronicPCTools\tools` on first run. Legacy client kept in `v1/`.
+- **Sensors**: HWiNFO shared memory for CPU/GPU (the WinRing0 risk in section 8 materialised on real PCs);
+  LibreHardwareMonitorLib + DiskInfoToolkit remain only for SSD SMART. Windows WMI supplies board/BIOS/spec.
+- **Tests**: CPU (Prime95), GPU (FurMark), **VRAM (memtest_vulkan, new component `vram`)**, RAM (TestMem5),
+  SSD (DiskSpd + SMART, with live read/write speed). GPU and VRAM never overlap; RAM/SSD stay exclusive.
+- **Client UX**: one tab per test (runs locally, submits nothing) plus **Run Tests** (series in one server
+  session, submits). Settings holds server URL/API key, per-test durations, CPU load level (default Blend with
+  AVX off), VRAM GPU number, hidden tool windows, telemetry interval, **Offline mode**, reset buttons.
+- **Run parameters are local**: durations/CPU mode/VRAM GPU override the server config; the client reports what
+  it used via `run_settings` (at test-run start and completion) and the server stores it in `config_snapshot`.
+  Pass/fail thresholds and evaluation remain server-only.
+- **system_info**: the client sends a PC specification (CPU, GPU, RAM modules, board/BIOS, drives, OS) with the
+  session (`sessions.system_info`, migration 003); the dashboard and PDF show it.
+- **Server dashboard/PDF**: restyled to the Luxtronic design guidelines (compact header, logo, 1080p layout),
+  charts always start at 0 s, new test boxes appear without refreshing, RAM test charts show memory in use /
+  CPU temp / errors, SSD charts show live read/write speed. The PDF is a multi-section report with the PC
+  specification before the result summary.
+- **Still open**: port the v1 unit tests; verify TestMem5 hiding, memtest_vulkan device handling and a real RAM
+  error on hardware; code signing/installer (section 7 backlog unchanged).
