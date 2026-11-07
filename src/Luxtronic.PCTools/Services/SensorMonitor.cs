@@ -136,6 +136,15 @@ public sealed class SensorMonitor : IDisposable
         return (true, "Sensors OK - CPU temperature readable via HWiNFO.");
     }
 
+    /// <summary>Re-checks HWiNFO after it was restarted: reconnects to its shared memory and returns
+    /// the same health verdict <see cref="Initialize"/> gives. Storage/LHM is left as it is.</summary>
+    public (bool Healthy, string Message) RecheckHwInfo()
+    {
+        _hwInfo.Reset();
+        var (reachable, cpu) = _hwInfo.ReadCpuWithReachability();
+        return EvaluateSensorHealth(reachable, cpu.CpuPackageTempC.HasValue);
+    }
+
     /// <summary>Re-polls HWiNFO's shared memory and returns the current CPU readings we stream as
     /// telemetry.</summary>
     public SensorReadings ReadCpu()

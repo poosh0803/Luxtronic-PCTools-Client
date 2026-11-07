@@ -182,6 +182,38 @@ public sealed partial class MachineService : ObservableObject, IDisposable
         Initialized?.Invoke();
     }
 
+    /// <summary>Restarts HWiNFO from the Dashboard and re-checks the sensors. Sensor health (and so the
+    /// Start buttons) follows the result; idle polling starts if it wasn't running yet.</summary>
+    public async Task RestartHwInfoAsync()
+    {
+        if (!IsInitialized)
+        {
+            return;
+        }
+
+        PauseIdlePolling();
+        SensorStatus = "Restarting HWiNFO...";
+        try
+        {
+            await _hwInfo.RestartAsync(_settings.HwInfoDirectory, _log.Append);
+            var (healthy, message) = await Task.Run(() => Sensors.RecheckHwInfo());
+            SensorsHealthy = healthy;
+            SensorStatus = message;
+            _log.Append(message);
+            if (healthy)
+            {
+                LoadDeviceNames();
+                StartIdlePolling();
+            }
+        }
+        catch (Exception ex)
+        {
+            SensorsHealthy = false;
+            SensorStatus = $"Could not restart HWiNFO: {ex.Message}";
+            _log.Append(SensorStatus);
+        }
+    }
+
     /// <summary>One-time SMART read + drive picker build. Goes through the shared SensorMonitor
     /// (LHM doesn't support two Computer instances in one process).</summary>
     private void LoadSsds()

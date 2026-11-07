@@ -28,7 +28,14 @@
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <ui:TextBlock Grid.Row="1" Margin="0,2" FontWeight="SemiBold" Text="Sensor status" />
-                        <ui:TextBlock Grid.Row="1" Grid.Column="1" Margin="0,2" Text="{Binding Machine.SensorStatus}" TextWrapping="Wrap" />
+                        <Grid Grid.Row="1" Grid.Column="1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ui:TextBlock Margin="0,2" VerticalAlignment="Center" Text="{Binding Machine.SensorStatus}" TextWrapping="Wrap" />
+                            <ui:Button Grid.Column="1" Margin="12,0,0,0" Command="{Binding RestartHwInfoCommand}" Content="Restart HWiNFO" ToolTip="Close and start HWiNFO again, then re-check the sensors" />
+                        </Grid>
                         <ui:TextBlock Grid.Row="2" Margin="0,2" FontWeight="SemiBold" Text="Server" />
                         <ui:TextBlock Grid.Row="2" Grid.Column="1" Margin="0,2" Text="{Binding ServerUrl}" />
                         <ui:TextBlock Grid.Row="3" Margin="0,2" FontWeight="SemiBold" Text="API key" />

@@ -66,6 +66,32 @@ public sealed class HwInfoLauncher : IDisposable
         log("WARNING: HWiNFO's shared memory did not appear within 30s - CPU/GPU sensors may be unavailable.");
     }
 
+    /// <summary>Closes every running HWiNFO64 (ours or one the technician started) and starts the
+    /// bundled copy again - for when it was closed by mistake or has stopped publishing.</summary>
+    public async Task RestartAsync(string hwInfoDirectory, Action<string> log)
+    {
+        foreach (var p in Process.GetProcessesByName("HWiNFO64"))
+        {
+            try
+            {
+                p.Kill(entireProcessTree: true);
+                await p.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (Exception ex)
+            {
+                log($"WARNING: could not close HWiNFO64 (pid {p.Id}): {ex.Message}");
+            }
+            finally
+            {
+                p.Dispose();
+            }
+        }
+
+        _started?.Dispose();
+        _started = null;
+        await EnsureRunningAsync(hwInfoDirectory, log);
+    }
+
     private static bool SharedMemoryUp()
     {
         try

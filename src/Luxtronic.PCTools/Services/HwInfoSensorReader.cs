@@ -166,11 +166,7 @@ public sealed class HwInfoSensorReader : IDisposable
             .Where(r => r.GroupLabelOrig.Contains("CPU", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        double? tempC = cpuReadings
-            .Where(r => r.Type == SensorType.SensorTypeTemp &&
-                        r.LabelOrig.Contains("Package", StringComparison.OrdinalIgnoreCase))
-            .Select(r => (double?)r.Value)
-            .FirstOrDefault();
+        double? tempC = ExtractCpuTemp(cpuReadings);
 
         double? loadPct = cpuReadings
             .Where(r => r.Type == SensorType.SensorTypeUsage &&
@@ -193,13 +189,65 @@ public sealed class HwInfoSensorReader : IDisposable
 
         // Not under any "CPU [...]" group - see class remarks. Searches all readings, not the
         // CPU-filtered subset above.
-        double? fanRpm = readings
-            .Where(r => r.Type == SensorType.SensorTypeFan &&
-                        r.LabelOrig.Equals("CPU", StringComparison.OrdinalIgnoreCase))
-            .Select(r => (double?)r.Value)
-            .FirstOrDefault();
+        double? fanRpm = ExtractCpuFan(readings);
 
         return (tempC, loadPct, fanRpm, clockMhz);
+    }
+
+    /// <summary>
+    /// Boards name the CPU fan header differently: MSI "CPU", ASUS "CPUFANIN0" / "CPU_FAN" / "CPU Fan"
+    /// (Nuvoton/ITE chips). Labels are compared with spaces, "_" and "-" removed, best match first;
+    /// the optional-fan/pump headers ("CPU_OPT", "AIO_PUMP") are only a last resort.
+    /// </summary>
+    private static double? ExtractCpuFan(IReadOnlyList<SensorReading> readings)
+    {
+        var fans = readings
+            .Where(r => r.Type == SensorType.SensorTypeFan)
+            .Select(r => (Key: r.LabelOrig.Replace(" ", "").Replace("_", "").Replace("-", "").ToUpperInvariant(), r.Value))
+            .Where(f => f.Key.Contains("CPU"))
+            .ToList();
+
+        bool Opt(string key) => key.Contains("OPT") || key.Contains("PUMP");
+
+        var ordered = fans.Where(f => f.Key == "CPU")
+            .Concat(fans.Where(f => f.Key.StartsWith("CPUFAN")))
+            .Concat(fans.Where(f => f.Key.Contains("FAN") && !Opt(f.Key)))
+            .Concat(fans.Where(f => !Opt(f.Key)))
+            .Concat(fans);
+        foreach (var f in ordered)
+        {
+            return f.Value;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Intel CPUs report "CPU Package"; AMD Ryzen has no such reading and HWiNFO labels the die
+    /// temperature "CPU (Tctl/Tdie)" / "CPU Die (average)" instead, so try those in order of how
+    /// well they represent the whole chip, then fall back to the hottest per-core/CCD temperature
+    /// (never a "Distance to TjMax" or limit reading, which are not temperatures).
+    /// </summary>
+    private static double? ExtractCpuTemp(IReadOnlyList<SensorReading> cpuReadings)
+    {
+        var temps = cpuReadings
+            .Where(r => r.Type == SensorType.SensorTypeTemp &&
+                        !r.LabelOrig.Contains("Distance", StringComparison.OrdinalIgnoreCase) &&
+                        !r.LabelOrig.Contains("Limit", StringComparison.OrdinalIgnoreCase) &&
+                        !r.LabelOrig.Contains("TjMax", StringComparison.OrdinalIgnoreCase) &&
+                        r.Value > 0)
+            .ToList();
+
+        foreach (var key in new[] { "Package", "Tctl", "Tdie", "Die (average)" })
+        {
+            var hits = temps.Where(r => r.LabelOrig.Contains(key, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (hits.Count > 0)
+            {
+                return hits[0].Value;
+            }
+        }
+
+        return temps.Count > 0 ? temps.Max(r => r.Value) : null;
     }
 
     /// <summary>
@@ -237,6 +285,14 @@ public sealed class HwInfoSensorReader : IDisposable
         double? memTotal = memUsed.HasValue && memAvailable.HasValue ? memUsed + memAvailable : null;
 
         return new GpuReadings(coreTemp, hotSpotTemp, coreClock, memClock, load, fan, power, memUsed, memTotal);
+    }
+
+    /// <summary>Drops the shared-memory connection so the next read re-opens it - needed after
+    /// HWiNFO is closed and started again, since the old mapping would be stale.</summary>
+    public void Reset()
+    {
+        _reader?.Dispose();
+        _reader = null;
     }
 
     public void Dispose() => _reader?.Dispose();

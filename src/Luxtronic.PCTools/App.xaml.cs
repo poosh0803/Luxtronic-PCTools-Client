@@ -76,6 +76,7 @@ public partial class App : Application
         services.AddSingleton<DriversViewModel>();
         services.AddSingleton<UpdatesViewModel>();
         services.AddSingleton<ToolsViewModel>();
+        services.AddSingleton<ScriptsViewModel>();
         services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<LogAboutViewModel>();
         services.AddSingleton<DashboardPage>();
@@ -89,6 +90,7 @@ public partial class App : Application
         services.AddSingleton<DriversPage>();
         services.AddSingleton<UpdatesPage>();
         services.AddSingleton<ToolsPage>();
+        services.AddSingleton<ScriptsPage>();
         services.AddSingleton<SettingsPage>();
         services.AddSingleton<LogAboutPage>();
     }

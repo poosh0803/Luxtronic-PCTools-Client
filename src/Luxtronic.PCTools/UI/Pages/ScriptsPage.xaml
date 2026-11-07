@@ -1,0 +1,82 @@
+<Page
+    x:Class="Luxtronic.PCTools.UI.Pages.ScriptsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:behaviors="clr-namespace:Luxtronic.PCTools.UI.Behaviors"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    Title="Scripts">
+    <Grid Margin="32,24,32,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <ui:TextBlock FontTypography="Title" Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="Scripts" />
+            <ui:TextBlock
+                Margin="0,2,0,12"
+                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                Text="PowerShell scripts built into this app. They run on this PC with the app's administrator rights."
+                TextWrapping="Wrap" />
+        </StackPanel>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="260" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <ui:Card Margin="0,0,12,0" Padding="4">
+                <ListBox
+                    behaviors:WheelScroll.Enabled="True"
+                    DisplayMemberPath="Name"
+                    IsEnabled="{Binding CanPick}"
+                    ItemsSource="{Binding Scripts}"
+                    SelectedItem="{Binding Selected, Mode=TwoWay}" />
+            </ui:Card>
+
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <ui:TextBlock Text="{Binding Description}" TextWrapping="Wrap" />
+
+                <StackPanel Grid.Row="1" Margin="0,10,0,8" Orientation="Horizontal">
+                    <ui:Button Appearance="Primary" Command="{Binding RunCommand}" Content="Run" Icon="{ui:SymbolIcon Play24}" />
+                    <ui:Button Margin="8,0,0,0" Command="{Binding StopCommand}" Content="Stop" Icon="{ui:SymbolIcon Stop24}" />
+                    <ui:Button Margin="8,0,0,0" Command="{Binding CopyOutputCommand}" Content="Copy output" Icon="{ui:SymbolIcon Copy24}" />
+                    <ui:TextBlock Margin="16,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding Status}" />
+                </StackPanel>
+
+                <Grid Grid.Row="2">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <ui:Card Padding="8">
+                        <TextBox
+                            Background="Transparent"
+                            BorderThickness="0"
+                            FontFamily="Consolas"
+                            HorizontalScrollBarVisibility="Auto"
+                            IsReadOnly="True"
+                            Text="{Binding Output, Mode=OneWay}"
+                            VerticalScrollBarVisibility="Auto" />
+                    </ui:Card>
+                    <Expander Grid.Row="1" Margin="0,8,0,0" Header="Script source">
+                        <TextBox
+                            MaxHeight="200"
+                            FontFamily="Consolas"
+                            HorizontalScrollBarVisibility="Auto"
+                            IsReadOnly="True"
+                            Text="{Binding ScriptText, Mode=OneWay}"
+                            VerticalScrollBarVisibility="Auto" />
+                    </Expander>
+                </Grid>
+            </Grid>
+        </Grid>
+    </Grid>
+</Page>

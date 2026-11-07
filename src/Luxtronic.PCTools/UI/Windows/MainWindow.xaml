@@ -75,6 +75,10 @@
                     Content="Tools"
                     Icon="{ui:SymbolIcon Wrench24}"
                     TargetPageType="{x:Type pages:ToolsPage}" />
+                <ui:NavigationViewItem
+                    Content="Scripts"
+                    Icon="{ui:SymbolIcon Code24}"
+                    TargetPageType="{x:Type pages:ScriptsPage}" />
             </ui:NavigationView.MenuItems>
             <ui:NavigationView.FooterMenuItems>
                 <ui:NavigationViewItem
