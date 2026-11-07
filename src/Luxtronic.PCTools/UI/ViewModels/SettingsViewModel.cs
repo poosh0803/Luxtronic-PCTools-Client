@@ -162,7 +162,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// test is running.
     /// </summary>
     [RelayCommand]
-    private async Task ResetEverything()
+    private Task ResetEverything() => ResetAsync(restart: true);
+
+    /// <summary>Same wipe as <see cref="ResetEverything"/>, but the app closes and stays closed.</summary>
+    [RelayCommand]
+    private Task ResetAndQuit() => ResetAsync(restart: false);
+
+    private async Task ResetAsync(bool restart)
     {
         if (_controllers.AnyRunning)
         {
@@ -172,10 +178,10 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         var confirmed = await ThemedDialog.ConfirmAsync(
             "Reset everything",
-            "This deletes ALL of the app's saved data and restarts it:\n\n" +
+            (restart ? "This deletes ALL of the app's saved data and restarts it:\n\n" : "This deletes ALL of the app's saved data and closes the app:\n\n") +
             "  - your settings, including the server URL and API key\n" +
             "  - the log files\n" +
-            "  - the unpacked test tools (they are unpacked again on restart)\n\n" +
+            "  - the unpacked test tools (they are unpacked again the next time the app starts)\n\n" +
             "You will need to enter the API key again. Continue?",
             "Delete everything", "Cancel");
         if (!confirmed)
@@ -183,14 +189,14 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        var error = AppReset.ScheduleWipeAndRestart(out var willRestart);
+        var error = AppReset.ScheduleWipeAndRestart(out var willRestart, restart);
         if (error is not null)
         {
             Report(error, isError: true);
             return;
         }
 
-        if (!willRestart)
+        if (restart && !willRestart)
         {
             await ThemedDialog.InfoAsync("Reset everything",
                 "The saved data will be deleted as the app closes. Start the app again yourself (it was run through the .NET host, so it can't relaunch itself).");

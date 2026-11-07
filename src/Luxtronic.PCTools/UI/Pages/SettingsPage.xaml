@@ -144,14 +144,21 @@
                     <ui:TextBlock
                         Margin="0,0,0,10"
                         Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                        Text="Deletes the app's whole saved-data folder (settings including the API key, logs and the unpacked test tools) and restarts the app as if freshly installed. You will have to enter the API key again."
+                        Text="Deletes the app's whole saved-data folder (settings including the API key, logs and the unpacked test tools) and either restarts the app as if freshly installed or, with 'Reset and quit', closes it for good. You will have to enter the API key again."
                         TextWrapping="Wrap" />
-                    <ui:Button
-                        HorizontalAlignment="Left"
-                        Appearance="Danger"
-                        Command="{Binding ResetEverythingCommand}"
-                        Content="Reset everything and restart"
-                        Icon="{ui:SymbolIcon Delete24}" />
+                    <StackPanel Orientation="Horizontal">
+                        <ui:Button
+                            Appearance="Danger"
+                            Command="{Binding ResetEverythingCommand}"
+                            Content="Reset everything and restart"
+                            Icon="{ui:SymbolIcon Delete24}" />
+                        <ui:Button
+                            Margin="8,0,0,0"
+                            Appearance="Danger"
+                            Command="{Binding ResetAndQuitCommand}"
+                            Content="Reset and quit"
+                            Icon="{ui:SymbolIcon Power24}" />
+                    </StackPanel>
                 </StackPanel>
             </ui:Card>
 

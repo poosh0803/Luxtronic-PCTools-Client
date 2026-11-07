@@ -22,9 +22,10 @@ public static class AppReset
     /// <summary>
     /// Starts the helper batch. The caller must then close the app. Returns an error message, or null
     /// on success. <paramref name="willRestart"/> is false when the app can't be relaunched (for
-    /// example when run through "dotnet run"), in which case the folder is only deleted.
+    /// example when run through "dotnet run") or <paramref name="restart"/> is false ("Reset and quit"),
+    /// in which case the folder is only deleted.
     /// </summary>
-    public static string? ScheduleWipeAndRestart(out bool willRestart)
+    public static string? ScheduleWipeAndRestart(out bool willRestart, bool restart = true)
     {
         willRestart = false;
 
@@ -35,7 +36,7 @@ public static class AppReset
         }
 
         var exe = Environment.ProcessPath;
-        var canRestart = exe is not null && !Path.GetFileNameWithoutExtension(exe).Equals("dotnet", StringComparison.OrdinalIgnoreCase);
+        var canRestart = restart && exe is not null && !Path.GetFileNameWithoutExtension(exe).Equals("dotnet", StringComparison.OrdinalIgnoreCase);
         willRestart = canRestart;
 
         try
