@@ -24,6 +24,7 @@ public sealed class AppInfo
 
     [JsonPropertyName("file_sha256")] public string? FileSha256 { get; set; }
     [JsonPropertyName("icon_mime")] public string? IconMime { get; set; }
+    [JsonPropertyName("created_at")] public DateTime CreatedAt { get; set; }
     [JsonPropertyName("updated_at")] public DateTime UpdatedAt { get; set; }
 }
 
@@ -41,7 +42,7 @@ public sealed class AppCatalogService : IDisposable
     /// <summary>Apps and drivers each get their own folder under %LocalAppData%\LuxtronicPCTools.</summary>
     public static string DownloadRoot(string category) => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LuxtronicPCTools",
-        category switch { "driver" => "drivers", "tool" => "tools", _ => "apps" });
+        category switch { "driver" => "drivers", "tool" => "tools", "client" => "updates", _ => "apps" });
 
     /// <summary>List/grid choice, shared by the Apps, Drivers and Tools tabs (kept for the session).</summary>
     public bool PreferGridView { get; set; }

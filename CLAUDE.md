@@ -37,6 +37,15 @@ Luxtronic PCTools: a two-part hardware testing system in **separate git repos**:
   PostgreSQL (port `5434`), pm2 on the LAN box `192.168.68.255:7777`. Ingests telemetry, evaluates thresholds,
   serves the no-login dashboard and PDF reports.
 
+## Updates (self-update)
+
+The Updates tab (`UI/Pages/UpdatesPage`, `UpdatesViewModel`, `Services/UpdateService.cs`) installs client builds published on
+the server's Publish page (category `client`, uploaded with `upload-release.bat`). Which release is running is found by
+the exe's SHA-256, not by version number (the assembly version is only bumped by hand). Installing downloads the
+release (checksum-verified, via `AppCatalogService`), then `AppUpdater` starts a batch helper that waits for this process
+to exit, moves the old exe to `.old`, copies the new one in (restoring the old one if that fails) and relaunches - the
+same pattern as `AppReset`. Keep that helper free of parenthesised blocks (see the comment in `AppReset.BuildScript`).
+
 ## Apps / Drivers / Tools
 
 The sidebar has Apps, Drivers and Tools tabs that download installers the server hosts (CONTRACT.md section 4,

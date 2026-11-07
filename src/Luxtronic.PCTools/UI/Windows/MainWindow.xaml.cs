@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Luxtronic.PCTools.Services;
 using Luxtronic.PCTools.Services.Shell;
 using Luxtronic.PCTools.UI.Pages;
 using Luxtronic.PCTools.UI.ViewModels;
@@ -16,6 +17,7 @@ public partial class MainWindow : FluentWindow
     private readonly Luxtronic.PCTools.Services.AppSettingsProvider _settings;
     private readonly LogService _log;
     private readonly AppThemeService _theme;
+    private readonly UpdateService _updates;
     private bool _closing;
     private bool _confirmingClose;
 
@@ -26,9 +28,11 @@ public partial class MainWindow : FluentWindow
         ControllerProvider controllers,
         Luxtronic.PCTools.Services.AppSettingsProvider settings,
         LogService log,
-        AppThemeService theme)
+        AppThemeService theme,
+        UpdateService updates)
     {
         _theme = theme;
+        _updates = updates;
         _settings = settings;
         _log = log;
         _machine = machine;
@@ -64,6 +68,13 @@ public partial class MainWindow : FluentWindow
         var firstPage = _settings.ApiKey is null && !_settings.OfflineMode ? typeof(SettingsPage) : typeof(DashboardPage);
         _ = Dispatcher.BeginInvoke(new Action(() => RootNavigation.Navigate(firstPage)),
             System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        // Quiet startup check: a dot on the Updates tab when a newer published build exists.
+        _updates.UpdateChecked += (available, _) =>
+            Dispatcher.BeginInvoke(new Action(() =>
+                UpdatesNavItem.InfoBadge = available ? new InfoBadge { Severity = InfoBadgeSeverity.Attention } : null));
+        UpdateService.CleanupLeftovers();
+        _ = _updates.CheckQuietlyAsync();
+
         await _machine.InitializeAsync();
     }
 

@@ -25,6 +25,7 @@ and [CONTRACT.md](CONTRACT.md) for the design and the API contract shared with t
 | **Run Tests** | Tick any combination of CPU / GPU / VRAM / RAM / SSD. They run **one after another in one server session**, every result is **submitted**. Shows the running test's own progress (percent, elapsed/remaining) and an overall bar. Customer name, new-build/repair and notes go here. |
 | **CPU, GPU, VRAM, RAM, SSD** | One tab per test. Runs that single test **on this PC only - nothing is sent to the server**. Shows live sensors, a progress card and a plain "last run" outcome line (not saved anywhere). SSD has the drive/folder picker. |
 | **Apps, Drivers, Tools** | Installers the server hosts, one list per category. Each entry shows its icon, name, version, description and file size; **Download** fetches it (progress, cancel, checked against the server's SHA-256) into `%LocalAppData%\LuxtronicPCTools\apps\`, `drivers\` or `tools\`, then the button becomes **Run** (launched through Windows, so UAC works) plus **Folder**. A newer upload on the server counts as not downloaded yet, and finishing the download deletes the older version. **Remove downloaded apps/drivers/tools** clears that category from this PC. A **Grid / List** switch changes the layout (shared by the three tabs for the session). Managed on the server's Apps / Drivers / Tools pages; none of this needs the API key. |
+| **Updates** | New builds of this program published on the server's Publish page. Shows which published release this PC is running (found by comparing the exe's SHA-256, so a local build is reported as "not a published release"), the latest release, and every release with its notes. **Update now** (or **Install** on any release, including an older one to roll back) downloads it, checks the checksum, then closes the app, swaps the exe and relaunches it; settings are kept. Refused while a test is running or when started through `dotnet`. At startup a quiet check puts a dot on the Updates tab when a newer release exists (skipped in Offline mode). |
 | **Settings** | Server URL and API key, Offline mode, per-test durations, CPU load level, VRAM GPU number, background (hidden-window) switch, telemetry interval, theme, "Reset to defaults" and "Reset everything and restart". |
 | **Log / About** | The live status log (copy / clear / open log folder), version and logo. |
 
@@ -63,6 +64,26 @@ publish.bat                      # single-file exe -> publish\win-x64\Luxtronic.
 `publish.bat` runs `dotnet publish ... -p:PublishProfile=Single` (self-contained, ReadyToRun, compressed
 single file; settings in `src/Luxtronic.PCTools/Properties/PublishProfiles/Single.pubxml`). The exe cannot
 be overwritten while it is running - close the app first.
+
+### Uploading a build to the server (Publish page)
+
+(The client side of this is the **Updates** tab, which downloads and installs what is published here.)
+
+```
+upload-release.bat               # uploads publish\win-x64\Luxtronic.PCTools.exe with an automatic version
+upload-release.bat -Build        # publish first, then upload
+upload-release.bat -DryRun       # show the version and notes, upload nothing
+upload-release.bat -Version 2.1.0 -Notes "New wizard"
+upload-release.bat -Server http://localhost:7777
+```
+
+`upload-release.ps1` creates a release on the server's **Publish** page (`CONTRACT.md` section 4, category
+`client`) and uploads the exe, verifying the checksum. The version is the newest release's patch number plus
+one (2.0.3 -> 2.0.4), or the `<Version>` in the csproj when that is higher (bump it there for a minor or
+major release), or the csproj version when nothing is published yet. Release notes default to the build
+date, git branch and commit. An exe identical to one already published is not uploaded again (`-Force`
+overrides). The default server is the live box `http://192.168.68.255:7777`; it needs the server's Publish
+feature deployed.
 
 ### The tool pack
 
@@ -133,6 +154,7 @@ src/Luxtronic.PCTools/
     Prime95Runner / FurMarkRunner / TM5Runner / DiskSpdRunner / MemtestVulkanRunner   tool wrappers
     SensorMonitor / HwInfoSensorReader / SsdSmartReader   sensors and SMART
     AppCatalogService.cs     lists/downloads the server's apps, drivers and tools (checksum check, old-version cleanup)
+    UpdateService.cs         finds newer published client builds, downloads one, and AppUpdater swaps the exe and relaunches
     SystemInfoCollector.cs   the system_info block;  MotherboardInfoReader.cs, SystemProbes.cs (RAM, disk speed)
     LuxApiClient / TelemetryPublisher   REST + WebSocket (both honour Offline mode)
     WindowHider.cs           hides tool windows;  Shell/ : MachineService, ControllerProvider, RunState,
@@ -145,6 +167,7 @@ src/Luxtronic.PCTools/
     ViewModels/              one per page; SingleTestViewModel + CPU/GPU/VRAM/RAM/SSD subclasses
   Resources/                 Logo.png, Emblem.png (+ source art);  Logo.ico (exe icon)
 publish.bat                  builds the single-file exe
+upload-release.bat / .ps1    uploads the built exe to the server's Publish page with an automatic version
 tools/                       third-party tool folders (binaries git-ignored)
 v1/                          the previous client, kept for reference
 ```
