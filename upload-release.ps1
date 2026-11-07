@@ -62,7 +62,9 @@ Write-Host ("Build:  {0}  ({1:N1} MB, built {2:yyyy-MM-dd HH:mm})" -f $file.Full
 
 # --- what is already on the server ------------------------------------------------------------
 try {
-    $releases = @(Invoke-RestMethod -Uri "$Server/api/apps?category=client" -TimeoutSec 15)
+    # Windows PowerShell 5.1 hands a JSON array back as ONE nested array object; the ForEach-Object
+    # unrolls it so $releases is a flat list whatever the number of releases.
+    $releases = @(Invoke-RestMethod -Uri "$Server/api/apps?category=client" -TimeoutSec 15 | ForEach-Object { $_ })
 } catch {
     $hint = ''
     if ($_.Exception.Message -match '400') { $hint = "`nThe server probably does not have the Publish feature yet - deploy the latest server first." }
