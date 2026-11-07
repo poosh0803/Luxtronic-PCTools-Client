@@ -76,6 +76,10 @@
                     Icon="{ui:SymbolIcon Wrench24}"
                     TargetPageType="{x:Type pages:ToolsPage}" />
                 <ui:NavigationViewItem
+                    Content="Games"
+                    Icon="{ui:SymbolIcon Games24}"
+                    TargetPageType="{x:Type pages:GamesPage}" />
+                <ui:NavigationViewItem
                     Content="Scripts"
                     Icon="{ui:SymbolIcon Code24}"
                     TargetPageType="{x:Type pages:ScriptsPage}" />

@@ -42,7 +42,7 @@ public sealed class AppCatalogService : IDisposable
     /// <summary>Apps and drivers each get their own folder under %LocalAppData%\LuxtronicPCTools.</summary>
     public static string DownloadRoot(string category) => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LuxtronicPCTools",
-        category switch { "driver" => "drivers", "tool" => "tools", "client" => "updates", _ => "apps" });
+        category switch { "driver" => "drivers", "tool" => "tools", "game" => "games", "client" => "updates", _ => "apps" });
 
     /// <summary>List/grid choice, shared by the Apps, Drivers and Tools tabs (kept for the session).</summary>
     public bool PreferGridView { get; set; }

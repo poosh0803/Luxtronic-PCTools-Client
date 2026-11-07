@@ -46,11 +46,11 @@ release (checksum-verified, via `AppCatalogService`), then `AppUpdater` starts a
 to exit, moves the old exe to `.old`, copies the new one in (restoring the old one if that fails) and relaunches - the
 same pattern as `AppReset`. Keep that helper free of parenthesised blocks (see the comment in `AppReset.BuildScript`).
 
-## Apps / Drivers / Tools
+## Apps / Drivers / Tools / Games
 
-The sidebar has Apps, Drivers and Tools tabs that download installers the server hosts (CONTRACT.md section 4,
+The sidebar has Apps, Drivers, Tools and Games tabs that download installers the server hosts (CONTRACT.md section 4,
 "Apps, drivers and tools"; uploaded on the server's own pages). They share `UI/Controls/AppListView.xaml`, one
-`AppListViewModel` base (Apps/Drivers/Tools subclasses differ only in category and wording) and
+`AppListViewModel` base (Apps/Drivers/Tools/Games subclasses differ only in category and wording) and
 `Services/AppCatalogService.cs`. These endpoints need no API key. Downloads are checksum-verified and older
 versions are deleted. Confirmation dialogs should use `Services/Shell/ThemedDialog`, not the classic MessageBox.
 First start shows `UI/Windows/FirstRunWindow` (URL, API key, offline mode only).

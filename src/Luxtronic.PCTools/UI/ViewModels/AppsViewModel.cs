@@ -69,7 +69,7 @@ public sealed partial class AppItemViewModel : ObservableObject
         catch (Exception ex)
         {
             // SVG/WebP icons the dashboard accepts but WPF can't decode land here: placeholder is shown.
-            _log.Append($"{(Info.Category == "driver" ? "Drivers" : Info.Category == "tool" ? "Tools" : "Apps")}: icon for {Name} not shown ({ex.Message})");
+            _log.Append($"{(Info.Category == "driver" ? "Drivers" : Info.Category == "tool" ? "Tools" : Info.Category == "game" ? "Games" : "Apps")}: icon for {Name} not shown ({ex.Message})");
         }
     }
 
@@ -287,4 +287,16 @@ public sealed class ToolsViewModel : AppListViewModel
     public override string Plural => "tools";
     public override string Subtitle =>
         "Utilities published on the Luxtronic server. Download one (it is checked against the server's checksum), then run it.";
+}
+
+public sealed class GamesViewModel : AppListViewModel
+{
+    public GamesViewModel(AppCatalogService catalog, AppSettingsProvider settings, LogService log)
+        : base(catalog, settings, log) { }
+
+    public override string Category => "game";
+    public override string Title => "Games";
+    public override string Plural => "games";
+    public override string Subtitle =>
+        "Games and launchers published on the Luxtronic server. Download one (it is checked against the server's checksum), then run it.";
 }

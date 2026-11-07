@@ -69,11 +69,11 @@ CREATE TABLE telemetry (
 CREATE INDEX idx_telemetry_test_run_ts ON telemetry (test_run_id, ts);
 
 -- Downloadable apps, drivers and tools the PC client can fetch, plus published builds of the PC
--- client itself (migrations 004-007). The file and icon themselves live on the server's disk under
+-- client itself (migrations 004-008). The file and icon themselves live on the server's disk under
 -- APPS_DIR/<id>/, not in the database.
 CREATE TABLE apps (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  category      TEXT NOT NULL DEFAULT 'app' CHECK (category IN ('app', 'driver', 'tool', 'client')),
+  category      TEXT NOT NULL DEFAULT 'app' CHECK (category IN ('app', 'driver', 'tool', 'client', 'game')),
   name          TEXT NOT NULL,
   description   TEXT,
   version       TEXT,
@@ -166,11 +166,11 @@ A JSON file on the server (v1 — no admin UI, per plan). Client fetches the rel
 
 ### Apps, drivers, tools and client releases (no auth)
 
-One set of endpoints serves four lists, told apart by `category` (`app`, `driver`, `tool`, `client`); the dashboard has one page per category (`apps.html`, `drivers.html`, `tools.html`, and `publish.html` for `client`) and the PC client one tab for each of the first three. `client` holds published builds of the PC client itself: one row per release, `name` is `Luxtronic PCTools`, `version` is required and unique (case-insensitive, `409 { error: "duplicate_version" }` otherwise), `description` is the release notes, and the file is the build. The newest upload is the latest release. No API key is needed, same LAN-trust model as the rest of this table. Rows are snake_case: `id, category, name, description, version, file_name, file_size, file_sha256, icon_mime, icon_source, created_at, updated_at` (`file_size` is a JSON string, Postgres BIGINT).
+One set of endpoints serves five lists, told apart by `category` (`app`, `driver`, `tool`, `game`, `client`); the dashboard has one page per category (`apps.html`, `drivers.html`, `tools.html`, `games.html`, and `publish.html` for `client`) and the PC client one tab for each of the first four. `client` holds published builds of the PC client itself: one row per release, `name` is `Luxtronic PCTools`, `version` is required and unique (case-insensitive, `409 { error: "duplicate_version" }` otherwise), `description` is the release notes, and the file is the build. The newest upload is the latest release. No API key is needed, same LAN-trust model as the rest of this table. Rows are snake_case: `id, category, name, description, version, file_name, file_size, file_sha256, icon_mime, icon_source, created_at, updated_at` (`file_size` is a JSON string, Postgres BIGINT).
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/apps?category=app\|driver\|tool\|client` | List one category, sorted by name (`client` releases newest first). `category` defaults to `app`, so a client that predates drivers/tools keeps seeing only apps; `400` for any other value |
+| GET | `/api/apps?category=app\|driver\|tool\|game\|client` | List one category, sorted by name (`client` releases newest first). `category` defaults to `app`, so a client that predates drivers/tools keeps seeing only apps; `400` for any other value |
 | POST | `/api/apps` | Create an entry (no file yet). Body: `{ name, version?, description?, category? }` → `201` row |
 | PATCH | `/api/apps/:id` | Edit `{ name?, version?, description? }` → row |
 | DELETE | `/api/apps/:id` | Delete the entry and its files → `204` |
