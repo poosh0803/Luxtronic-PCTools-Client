@@ -59,6 +59,7 @@ public sealed partial class AppItemViewModel : ObservableObject
             var image = new BitmapImage();
             image.BeginInit();
             image.CacheOption = BitmapCacheOption.OnLoad;
+            image.DecodePixelWidth = 128; // some vendors embed a huge PNG (3000x3000): decode small, the tab shows 48px
             image.StreamSource = new MemoryStream(bytes);
             image.EndInit();
             image.Freeze();

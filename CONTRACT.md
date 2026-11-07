@@ -174,7 +174,7 @@ One set of endpoints serves five lists, told apart by `category` (`app`, `driver
 | POST | `/api/apps` | Create an entry (no file yet). Body: `{ name, version?, description?, category? }` → `201` row |
 | PATCH | `/api/apps/:id` | Edit `{ name?, version?, description? }` → row |
 | DELETE | `/api/apps/:id` | Delete the entry and its files → `204` |
-| PUT | `/api/apps/:id/file?filename=Setup.exe` | Raw request body (not multipart) is the file; streamed to disk with its SHA-256 computed on the way, replacing any previous file. Limit `MAX_APP_UPLOAD_MB` (default 2048) → `413`. For an `.exe` with no manually uploaded icon, the server tries to extract its icon (Windows only, 32x32 PNG) |
+| PUT | `/api/apps/:id/file?filename=Setup.exe` | Raw request body (not multipart) is the file; streamed to disk with its SHA-256 computed on the way, replacing any previous file. Limit `MAX_APP_UPLOAD_MB` (default 2048) → `413`. For an `.exe` with no manually uploaded icon, the server extracts the exe's own icon from its PE resources (any OS; stored as a PNG when the largest image is PNG-compressed, else as an `.ico`) |
 | PUT | `/api/apps/:id/icon` | Raw image body, `Content-Type` png / jpeg / svg+xml / x-icon / webp, max 2 MB (`415` for other types, `413` if too large). A manual icon is kept when a new `.exe` is uploaded |
 | GET | `/api/apps/:id/icon` | The icon image (`404` if none) |
 | GET | `/api/apps/:id/download` | The file as an attachment named `file_name`, with an `X-File-SHA256` header (`404` if no file) |
