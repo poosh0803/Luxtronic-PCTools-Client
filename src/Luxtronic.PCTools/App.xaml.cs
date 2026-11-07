@@ -60,6 +60,7 @@ public partial class App : Application
         services.AddSingleton<ControllerProvider>();
         services.AddSingleton<RunState>();
         services.AddSingleton<AppCatalogService>();
+        services.AddSingleton<UpdateService>();
 
         // Windows / pages / view-models. Pages are singletons so a half-filled session form
         // survives navigating to another page and back.
@@ -73,6 +74,7 @@ public partial class App : Application
         services.AddSingleton<SsdTestViewModel>();
         services.AddSingleton<AppsViewModel>();
         services.AddSingleton<DriversViewModel>();
+        services.AddSingleton<UpdatesViewModel>();
         services.AddSingleton<ToolsViewModel>();
         services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<LogAboutViewModel>();
@@ -85,6 +87,7 @@ public partial class App : Application
         services.AddSingleton<SsdTestPage>();
         services.AddSingleton<AppsPage>();
         services.AddSingleton<DriversPage>();
+        services.AddSingleton<UpdatesPage>();
         services.AddSingleton<ToolsPage>();
         services.AddSingleton<SettingsPage>();
         services.AddSingleton<LogAboutPage>();

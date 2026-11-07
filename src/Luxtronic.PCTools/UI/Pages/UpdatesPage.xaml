@@ -1,0 +1,138 @@
+<Page
+    x:Class="Luxtronic.PCTools.UI.Pages.UpdatesPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:behaviors="clr-namespace:Luxtronic.PCTools.UI.Behaviors"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    Title="Updates">
+    <Page.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+    </Page.Resources>
+    <ScrollViewer behaviors:WheelScroll.Enabled="True" VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="32,24,32,24">
+            <Grid>
+                <StackPanel>
+                    <ui:TextBlock FontTypography="Title" Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="Updates" />
+                    <ui:TextBlock
+                        Margin="0,2,0,16"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        Text="New builds of this program published on the Luxtronic server. Installing downloads the build, checks it, then restarts the app. Older releases can be installed too, to go back."
+                        TextWrapping="Wrap" />
+                </StackPanel>
+                <ui:Button
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top"
+                    Command="{Binding CheckCommand}"
+                    Content="Check for updates"
+                    Icon="{ui:SymbolIcon ArrowClockwise24}"
+                    IsEnabled="{Binding IsNotInstalling}" />
+            </Grid>
+
+            <ui:Card Margin="0,0,0,12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center">
+                        <ui:TextBlock
+                            FontTypography="BodyStrong"
+                            Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                            Text="{Binding RunningText}"
+                            TextWrapping="Wrap" />
+                        <ui:TextBlock
+                            Margin="0,2,0,0"
+                            Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                            Text="{Binding LatestText}"
+                            TextWrapping="Wrap" />
+                        <ui:TextBlock
+                            Margin="0,6,0,0"
+                            Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                            Text="{Binding Message}"
+                            TextWrapping="Wrap" />
+                        <ProgressBar
+                            Height="6"
+                            Margin="0,8,16,0"
+                            Maximum="100"
+                            Value="{Binding Progress, Mode=OneWay}"
+                            Visibility="{Binding IsInstalling, Converter={StaticResource BoolToVis}}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal">
+                        <ui:Button
+                            Margin="0,0,8,0"
+                            Command="{Binding CancelCommand}"
+                            Content="Cancel"
+                            Visibility="{Binding IsInstalling, Converter={StaticResource BoolToVis}}" />
+                        <ui:Button
+                            MinWidth="140"
+                            Appearance="Primary"
+                            Command="{Binding InstallLatestCommand}"
+                            Content="Update now"
+                            IsEnabled="{Binding IsNotInstalling}"
+                            Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVis}}" />
+                    </StackPanel>
+                </Grid>
+            </ui:Card>
+
+            <ui:ProgressRing
+                Width="28"
+                Height="28"
+                Margin="0,4,0,8"
+                HorizontalAlignment="Left"
+                IsIndeterminate="True"
+                Visibility="{Binding IsChecking, Converter={StaticResource BoolToVis}}" />
+
+            <ItemsControl ItemsSource="{Binding Releases}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <ui:Card Margin="0,0,0,10">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal">
+                                        <ui:TextBlock
+                                            FontTypography="BodyStrong"
+                                            Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                            Text="{Binding VersionText}" />
+                                        <ui:TextBlock
+                                            Margin="10,0,0,0"
+                                            Foreground="#3FB950"
+                                            Text="Latest"
+                                            Visibility="{Binding IsLatest, Converter={StaticResource BoolToVis}}" />
+                                        <ui:TextBlock
+                                            Margin="10,0,0,0"
+                                            Foreground="#DDA84B"
+                                            Text="Running now"
+                                            Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}" />
+                                    </StackPanel>
+                                    <ui:TextBlock
+                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                        Text="{Binding Notes}"
+                                        TextWrapping="Wrap" />
+                                    <ui:TextBlock
+                                        Margin="0,2,0,0"
+                                        FontSize="12"
+                                        Foreground="{DynamicResource TextFillColorTertiaryBrush}">
+                                        <Run Text="{Binding FileText, Mode=OneWay}" />
+                                        <Run Text="  -  uploaded " />
+                                        <Run Text="{Binding UploadedText, Mode=OneWay}" />
+                                    </ui:TextBlock>
+                                </StackPanel>
+                                <ui:Button
+                                    Grid.Column="1"
+                                    MinWidth="104"
+                                    VerticalAlignment="Center"
+                                    Command="{Binding InstallCommand}"
+                                    Content="{Binding InstallLabel}"
+                                    IsEnabled="{Binding CanInstall}" />
+                            </Grid>
+                        </ui:Card>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </ScrollViewer>
+</Page>
